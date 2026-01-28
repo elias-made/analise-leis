@@ -1,0 +1,6 @@
+beautifulsoup4==4.14.3
+fastapi==0.128.0
+llama_index==0.14.13
+pydantic==2.12.5
+qdrant_client==1.16.2
+Requests==2.32.5

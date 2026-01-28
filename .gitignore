@@ -1,0 +1,28 @@
+__pycache__# --- Python & Virtual Environment ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# --- Variáveis de Ambiente & Segredos (CRÍTICO) ---
+# Nunca suba o .env para o GitHub, pois contém suas chaves da AWS!
+.env
+
+# --- Banco de Dados (Qdrant) ---
+# Ignora a persistência dos dados vetoriais (são pesados e binários)
+qdrant_data/
+
+# --- Arquivos Gerados / Temporários ---
+# Parece ser um arquivo de teste ou log gerado pelo script
+lei_reconstruida.txt
+
+# --- Logs e Erros ---
+*.log
+
+# --- IDEs e Sistema Operacional ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
