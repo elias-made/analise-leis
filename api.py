@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 # Imports do seu projeto
 import LLM
+import Langgraph
 import ingestion  # O arquivo que acabamos de corrigir
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -85,37 +86,19 @@ async def lifespan(app: FastAPI):
 # ==============================================================================
 app = FastAPI(title="API Jurídica RAG", lifespan=lifespan)
 
-@app.post("/perguntar", response_model=QueryResponse)
+@app.post("/perguntar")
 async def ask_law(request: QueryRequest):
-    """
-    Endpoint para o Chatbot. Responde perguntas com base nas leis indexadas.
-    """
-    if not query_engine:
-        raise HTTPException(status_code=503, detail="O sistema de busca não está pronto.")
-
-    try:
-        # O 'request.data' é a string da pergunta
-        response = query_engine.query(request.data)
-        
-        # Formata as fontes
-        lista_fontes = []
-        for node in response.source_nodes:
-            meta = node.metadata
-            lista_fontes.append(Fonte(
-                artigo=str(meta.get('numero_artigo', 'N/A')),
-                lei=str(meta.get('source', 'Desconhecida')),
-                link=str(meta.get('url_direta', '#')),
-                score=node.score or 0.0
-            ))
-            
-        return QueryResponse(
-            resposta=str(response),
-            fontes=lista_fontes
-        )
-
-    except Exception as e:
-        print(f"Erro no chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # Cria o estado inicial com a pergunta do usuário
+    estado_inicial = {"user_question": request.data}
+    
+    # Roda o grafo
+    resultado_final = await Langgraph.ainvoke(estado_inicial)
+    
+    # O resultado_final é um dicionário com os campos do Dataclass preenchidos
+    return {
+        "resposta": resultado_final["final_response"],
+        "perfil_detectado": resultado_final["classification_profile"]
+    }
 
 
 @app.post("/ingestion", response_model=IngestionResponse)
