@@ -8,8 +8,6 @@ from llama_index.core.node_parser import SentenceSplitter
 # 1. MÓDULO DE EXTRAÇÃO (Mantido igual)
 # ==============================================================================
 def extract_html(url):
-    # ... (seu código de extract_html permanece idêntico) ...
-    # (Vou omitir aqui para economizar espaço, pois já estava ótimo)
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
@@ -67,7 +65,6 @@ def fatiar_por_artigos(texto_completo, titulo, url):
                 "metadata": {
                     "source": titulo,
                     "url_geral": url,
-                    "url_direta": url,
                     "tipo": "Preambulo",
                     "numero_artigo": "0"
                 }
@@ -81,7 +78,6 @@ def fatiar_por_artigos(texto_completo, titulo, url):
         # Identifica número do artigo para Metadados e Link
         match_num = re.search(r'Art[\.\s]\s*(\d+)', chunk, re.IGNORECASE)
         num_art = match_num.group(1) if match_num else "N/A"
-        link_ancora = f"{url}#art{num_art}" if url and num_art != "N/A" else url
         
         # --- AQUI A MÁGICA: LLAMAINDEX ENTRA EM AÇÃO ---
         # O split_text só vai quebrar SE o texto for maior que o chunk_size (1024 tokens)
@@ -90,7 +86,6 @@ def fatiar_por_artigos(texto_completo, titulo, url):
         for i, sub_texto in enumerate(sub_textos):
             texto_final = sub_texto
             
-            # Mantemos sua ideia genial de injetar contexto na continuação
             if i > 0:
                 texto_final = f"[Continuação do Art. {num_art} da {titulo}] ... {sub_texto}"
             
@@ -99,7 +94,6 @@ def fatiar_por_artigos(texto_completo, titulo, url):
                 "metadata": {
                     "source": titulo,
                     "url_geral": url,
-                    "url_direta": link_ancora,
                     "tipo": "Artigo",
                     "numero_artigo": num_art,
                     "parte": i + 1 

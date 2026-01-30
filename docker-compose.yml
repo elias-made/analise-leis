@@ -1,8 +1,32 @@
+version: "3.8"
+
 services:
+  # Serviço 1: Banco de Dados Vetorial
   qdrant:
-    image: qdrant/qdrant
+    image: qdrant/qdrant:latest
     container_name: qdrant_db
     ports:
       - "6333:6333"
     volumes:
-      - ./qdrant_data:/qdrant/storage
+      # Salva os dados na sua pasta local 'qdrant_data' para não perder ao reiniciar
+      - qdrant_data:/qdrant/storage
+
+  # Serviço 2: Sua Aplicação Streamlit
+  app:
+    build: .
+    container_name: juridico_ai_app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - qdrant # Espera o Qdrant iniciar antes de subir o app
+    environment:
+      # Configurações para o Python ler via os.getenv
+      - QDRANT_URL=http://qdrant:6333
+      - APP_USER=admin
+      - APP_PASSWORD=admin
+    # Lê o arquivo .env local para pegar as chaves da AWS
+    env_file:
+      - .env
+
+volumes:
+  qdrant_data:
