@@ -5,13 +5,9 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from llama_index.core.base.base_query_engine import BaseQueryEngine
 
-# =======================================================
-# 1. CONFIGURAÇÃO DE AMBIENTE E MODELO
-# =======================================================
-os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-
-bedrock_model = BedrockConverseModel(
-    'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+import Prompts
+from LLM import (
+    sonnet_bedrock_model
 )
 
 # =======================================================
@@ -23,80 +19,80 @@ class LegalDeps:
     historico_conversa: str
 
 # =======================================================
-# 3. AGENTE ROUTER (Classificador)
+# 4. AGENTE ROUTER (Classificador)
 # =======================================================
 router_agent = Agent(
-    model=bedrock_model,
+    model=sonnet_bedrock_model,
     deps_type=LegalDeps
 )
 
 @router_agent.system_prompt
 def prompt_router(ctx: RunContext[LegalDeps]) -> str:
-    return f"""
-    Você é um classificador jurídico.
-    Analise o histórico e a última mensagem para definir o porte da empresa.
-    
-    RESPONDA APENAS COM UMA DAS SEGUINTES PALAVRAS (sem pontuação):
-    micro
-    media
-    grande
-    geral
-    
-    Histórico da Conversa:
-    {ctx.deps.historico_conversa}
-    """
+    return Prompts.router_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
 
 # =======================================================
-# 4. AGENTE ESPECIALISTA (Microempresa)
+# 5. AGENTE TRIBUTÁRIO (Simples Nacional / LC 123)
 # =======================================================
-micro_agent = Agent(
-    model=bedrock_model,
+tributario_agent = Agent(
+    model=sonnet_bedrock_model,
     deps_type=LegalDeps
 )
 
-# ADICIONADO: Prompt dinâmico que recebe o histórico
-@micro_agent.system_prompt
-def prompt_micro(ctx: RunContext[LegalDeps]) -> str:
-    return f"""
-    Você é um advogado especialista em Microempresas, EPP e Simples Nacional (LC 123/2006).
-    Use a ferramenta de busca para fundamentar suas respostas.
-    
-    IMPORTANTE:
-    Use o histórico abaixo para manter o contexto da conversa (ex: se o usuário disser "e quais os impostos?", saiba do que ele está falando).
-    
-    Histórico da Conversa:
-    {ctx.deps.historico_conversa}
-    """
+@tributario_agent.system_prompt
+def prompt_tributario(ctx: RunContext[LegalDeps]) -> str:
+    return Prompts.tributario_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
 
-@micro_agent.tool
-def tool_buscar_leis_micro(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
-    """Busca leis usando a engine do LlamaIndex."""
+@tributario_agent.tool
+def tool_buscar_tributario(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
+    """Busca informações sobre impostos, Simples Nacional, ME/EPP e Pronampe."""
     response = ctx.deps.query_engine.query(termo_busca)
     return str(response)
 
 # =======================================================
-# 5. AGENTE ESPECIALISTA (Geral/Grande)
+# 6. AGENTE TRABALHISTA (CLT)
 # =======================================================
-general_agent = Agent(
-    model=bedrock_model,
+trabalhista_agent = Agent(
+    model=sonnet_bedrock_model,
     deps_type=LegalDeps
 )
 
-@general_agent.system_prompt
-def prompt_geral(ctx: RunContext[LegalDeps]) -> str:
-    return f"""
-    Você é um consultor jurídico sênior focado em Médias e Grandes Empresas (S.A., Lucro Real).
-    Foque em Compliance e Governança.
-    
-    IMPORTANTE:
-    Use o histórico abaixo para manter o contexto da conversa.
-    
-    Histórico da Conversa:
-    {ctx.deps.historico_conversa}
-    """
+@trabalhista_agent.system_prompt
+def prompt_trabalhista(ctx: RunContext[LegalDeps]) -> str:
+    return Prompts.trabalhista_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
 
-@general_agent.tool
-def tool_buscar_leis_geral(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
-    """Busca leis usando a engine do LlamaIndex."""
+@trabalhista_agent.tool
+def tool_buscar_trabalhista(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
+    """Busca informações sobre leis trabalhistas, CLT, funcionários e demissão."""
     response = ctx.deps.query_engine.query(termo_busca)
     return str(response)
+
+# =======================================================
+# 7. AGENTE SOCIETÁRIO (Burocracia / Lei 14.195)
+# =======================================================
+societario_agent = Agent(
+    model=sonnet_bedrock_model,
+    deps_type=LegalDeps
+)
+
+@societario_agent.system_prompt
+def prompt_societario(ctx: RunContext[LegalDeps]) -> str:
+    return Prompts.societario_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
+
+@societario_agent.tool
+def tool_buscar_societario(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
+    """Busca informações sobre abertura de empresas, sócios, Lei 14.195 e burocracia."""
+    response = ctx.deps.query_engine.query(termo_busca)
+    return str(response)
+
+
+# =======================================================
+# 8. AGENTE CONVERSACIONAL (Novo)
+# =======================================================
+conversational_agent = Agent(
+    model=sonnet_bedrock_model,
+    deps_type=LegalDeps
+)
+
+@conversational_agent.system_prompt
+def prompt_conversational(ctx: RunContext[LegalDeps]) -> str:
+    return Prompts.conversational_tmpl.format(historico_conversa=ctx.deps.historico_conversa)

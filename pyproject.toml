@@ -1,0 +1,23 @@
+[project]
+name = "analise-leis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "boto3>=1.40.61",
+    "langchain-core>=1.2.7",
+    "langgraph>=1.0.7",
+    "llama-index-core==0.12.52",
+    "llama-index-embeddings-bedrock>=0.5.2",
+    "llama-index-llms-anthropic>=0.6.19",
+    "llama-index-llms-bedrock>=0.3.8",
+    "llama-index-vector-stores-qdrant==0.4.0",
+    "pandas>=2.3.3",
+    "pydantic-ai>=1.38.0",
+    "python-dotenv>=1.2.1",
+    "qdrant-client==1.12.1",
+    "requests>=2.32.5",
+    "streamlit>=1.53.1",
+]

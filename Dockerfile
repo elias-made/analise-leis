@@ -1,22 +1,18 @@
-# Usa uma imagem leve do Python
 FROM python:3.11-slim
 
-# Define a pasta de trabalho dentro do container
+# Instala o uv dentro do container
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 WORKDIR /app
 
-# Copia os arquivos de requisitos primeiro (para aproveitar cache do Docker)
-COPY requirements.txt .
+# Copia os arquivos de configuração do uv (em vez do requirements)
+COPY pyproject.toml uv.lock ./
 
-# Instala as dependências
-# O --no-cache-dir ajuda a manter a imagem pequena
-RUN pip install --no-cache-dir -r requirements.txt
+# Instala as dependências de forma idêntica ao seu PC
+RUN uv sync --frozen --no-cache
 
-# Copia todo o código do projeto para dentro do container
+# Copia o resto do código
 COPY . .
 
-# Expõe a porta do Streamlit
-EXPOSE 8501
-
-# Comando para rodar a aplicação
-# address=0.0.0.0 é obrigatório para o Streamlit ser acessível fora do Docker
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Comando para rodar (usando o ambiente do uv)
+CMD ["uv", "run", "streamlit", "run", "app.py", "--server.address=0.0.0.0"]

@@ -5,8 +5,10 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 import utils
 import LLM
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
-COLLECTION_NAME = "leis_v2"
+COLLECTION_NAME = "leis_v3"
 url = os.getenv("QDRANT_URL")
 client = QdrantClient(url=url, timeout=120)
 
@@ -40,9 +42,17 @@ def listar_urls_no_banco():
 
 # 3. SALVAMENTO
 def run_ingestion(documentos_llamaindex):
-    vector_store = QdrantVectorStore(collection_name=COLLECTION_NAME, client=client, enable_hybrid=False)
+    vector_store = QdrantVectorStore(
+        collection_name=COLLECTION_NAME, 
+        url=url,
+        api_key="",
+        # client=client,
+        enable_hybrid=False, 
+        batch_size=64, 
+        # vector_name="text-dense"
+    )
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    VectorStoreIndex.from_documents(documentos_llamaindex, storage_context=storage_context, show_progress=False)
+    VectorStoreIndex.from_documents(documentos_llamaindex, storage_context=storage_context, show_progress=True)
 
 # 4. PROCESSAMENTO COM PROGRESSO DETALHADO (CORRIGIDO)
 def processar_urls_stream(lista_urls: list):

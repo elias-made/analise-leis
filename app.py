@@ -1,15 +1,18 @@
 import os
+from qdrant_client import QdrantClient
 import streamlit as st
 import asyncio
 import time
 import pandas as pd
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import LLM
-import Langgraph
+import main
 import ingestion
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
 
 url = os.getenv("QDRANT_URL")
 
@@ -33,19 +36,26 @@ def carregar_sistema_ia():
         # Configurações
         Settings.embed_model = LLM.embed_model
         Settings.llm = LLM.llm_sonnet
+
+        client = QdrantClient(url=url, prefer_grpc=False)
         
         # Conexão Qdrant
         vector_store = QdrantVectorStore(
-            collection_name="leis_v2", 
-            url=url, 
-            api_key="123", 
-            enable_hybrid=False
+            collection_name="leis_v3", 
+            # url=url,
+            # api_key=None,
+            client=client,
+            enable_hybrid=False,
+            # vector_name="text-dense"
         )
         
         # Criação do Grafo
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
-        query_engine = index.as_query_engine(similarity_top_k=5)
-        return Langgraph.create_workflow(query_engine)
+        query_engine = index.as_query_engine(
+            similarity_top_k=5,
+            vector_store_query_mode="default"
+        )
+        return main.create_workflow(query_engine)
         
     except Exception as e:
         print(f"❌ Erro ao carregar IA: {e}")
