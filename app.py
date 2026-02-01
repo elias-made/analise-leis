@@ -174,7 +174,6 @@ def pagina_ingestao():
                         else: st.text(msg)
                 
                 st.success("Concluído!")
-                time.sleep(1.5)
                 st.rerun()
 
     # --- DIREITA: LISTA ---
