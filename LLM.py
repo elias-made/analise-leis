@@ -14,7 +14,7 @@ sonnet_bedrock_model = BedrockConverseModel(
 # ==============================================================================
 # 2. MODELO "LEITOR" (Para RAG / LlamaIndex / App.py)
 # ==============================================================================
-llm_sonnet = Bedrock(
+llm_haiku = Bedrock(
     model='us.anthropic.claude-3-5-haiku-20241022-v1:0',
     temperature=0,
     context_size=200000

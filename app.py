@@ -8,11 +8,33 @@ import pandas as pd
 from dotenv import load_dotenv
 load_dotenv()
 
+import logging
+import sys
+
 import LLM
 import main
 import ingestion
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.vector_stores.qdrant import QdrantVectorStore
+
+# =========================================================
+# CONFIGURAÇÃO DE LOGS
+# =========================================================
+# Configura o logger raiz para aceitar mensagens de nível INFO
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout) # Força a saída para o terminal
+    ],
+    force=True # Sobrescreve configurações padrão do Streamlit/outras libs
+)
+
+# Opcional: Silenciar logs chatos de bibliotecas externas (httpx, qdrant, etc)
+# logging.getLogger("httpx").setLevel(logging.WARNING)
+# logging.getLogger("httpcore").setLevel(logging.WARNING)
+# logging.getLogger("qdrant_client").setLevel(logging.WARNING)
 
 url = os.getenv("QDRANT_URL")
 
@@ -35,7 +57,7 @@ def carregar_sistema_ia():
     try:
         # Configurações
         Settings.embed_model = LLM.embed_model
-        Settings.llm = LLM.llm_sonnet
+        Settings.llm = LLM.llm_haiku
 
         client = QdrantClient(url=url, prefer_grpc=False)
         

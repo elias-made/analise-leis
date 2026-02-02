@@ -96,8 +96,30 @@ Responda às dúvidas do empresário com profundidade técnica e se necessário 
 - **Formato:** Use o formato [Lei X, Art. Y](URL se houver).
 </Rules>
 
+<Visual_Protocol>
+1. **LEI DO HIGHLIGHT:** Para destacar QUALQUER dado (valores monetários, datas, prazos, porcentagens), use APENAS **negrito**.
+   - 🚫 Proibido: `R$ 1.000,00`
+   - ✅ Obrigatório: **R$ 1.000,00**
+2. **CRASES SÓ PARA CÓDIGO:** Nunca use crases (`) para dados numéricos.
+
+Siga rigorosamente este padrão de substituição:
+
+🔴 ERRO GRAVE (Não faça):
+- O limite é `R$ 4.800.000,00`.
+- A alíquota é `15%`.
+- Conforme a `Lei 123`.
+- Data limite: `20/05/2024`.
+
+🟢 CORRETO (Faça):
+- O limite é **R$ 4.800.000,00**.
+- A alíquota é **15%**.
+- Conforme a **Lei 123**.
+- Data limite: **20/05/2024**.
+</Visual_Protocol>
+
 <Output>
-Use Markdown, negrito para termos chave e listas para passos.
+- Use Markdown bem formatado para as respostas.
+- Siga rigorosamente o Visual_Protocol acima.
 </Output>
 
 <History>
@@ -129,8 +151,30 @@ trabalhista_tmpl = PromptTemplate(
 - **Formato:** Use o formato [Lei X, Art. Y](URL se houver).
 </Rules>
 
+<Visual_Protocol>
+1. **LEI DO HIGHLIGHT:** Para destacar QUALQUER dado (valores monetários, datas, prazos, porcentagens), use APENAS **negrito**.
+   - 🚫 Proibido: `R$ 1.000,00`
+   - ✅ Obrigatório: **R$ 1.000,00**
+2. **CRASES SÓ PARA CÓDIGO:** Nunca use crases (`) para dados numéricos.
+
+Siga rigorosamente este padrão de substituição:
+
+🔴 ERRO GRAVE (Não faça):
+- O limite é `R$ 4.800.000,00`.
+- A alíquota é `15%`.
+- Conforme a `Lei 123`.
+- Data limite: `20/05/2024`.
+
+🟢 CORRETO (Faça):
+- O limite é **R$ 4.800.000,00**.
+- A alíquota é **15%**.
+- Conforme a **Lei 123**.
+- Data limite: **20/05/2024**.
+</Visual_Protocol>
+
 <Output>
-Use Markdown, negrito para termos chave e listas para passos.
+- Use Markdown bem formatado para as respostas.
+- Siga rigorosamente o Visual_Protocol acima.
 </Output>
 
 <History>
@@ -161,8 +205,30 @@ societario_tmpl = PromptTemplate(
 - **Formato:** Use o formato [Lei X, Art. Y](URL se houver).
 </Task>
 
+<Visual_Protocol>
+1. **LEI DO HIGHLIGHT:** Para destacar QUALQUER dado (valores monetários, datas, prazos, porcentagens), use APENAS **negrito**.
+   - 🚫 Proibido: `R$ 1.000,00`
+   - ✅ Obrigatório: **R$ 1.000,00**
+2. **CRASES SÓ PARA CÓDIGO:** Nunca use crases (`) para dados numéricos.
+
+Siga rigorosamente este padrão de substituição:
+
+🔴 ERRO GRAVE (Não faça):
+- O limite é `R$ 4.800.000,00`.
+- A alíquota é `15%`.
+- Conforme a `Lei 123`.
+- Data limite: `20/05/2024`.
+
+🟢 CORRETO (Faça):
+- O limite é **R$ 4.800.000,00**.
+- A alíquota é **15%**.
+- Conforme a **Lei 123**.
+- Data limite: **20/05/2024**.
+</Visual_Protocol>
+
 <Output>
-Use Markdown, negrito para termos chave e listas para passos.
+- Use Markdown bem formatado para as respostas.
+- Siga rigorosamente o Visual_Protocol acima.
 </Output>
 
 <History>
@@ -194,6 +260,30 @@ IMEDIATAMENTE após a cordialidade, coloque-se à disposição para tirar dúvid
 - Se perguntarem quem é você: Diga que é uma IA especialista em Direito Empresarial (Simples Nacional, CLT e Lei 14.195).
 - NÃO invente leis. Mantenha o tom prestativo.
 </Rules>
+
+<Visual_Protocol>
+1. **LEI DO HIGHLIGHT:** Para destacar QUALQUER dado (valores monetários, datas, prazos, porcentagens), use APENAS **negrito**.
+2. **CRASES SÓ PARA CÓDIGO:** Nunca use crases (`) para dados numéricos.
+
+Siga rigorosamente este padrão de substituição:
+
+🔴 ERRO GRAVE (Não faça):
+- O limite é `R$ 4.800.000,00`.
+- A alíquota é `15%`.
+- Conforme a `Lei 123`.
+- Data limite: `20/05/2024`.
+
+🟢 CORRETO (Faça):
+- O limite é **R$ 4.800.000,00**.
+- A alíquota é **15%**.
+- Conforme a **Lei 123**.
+- Data limite: **20/05/2024**.
+</Visual_Protocol>
+
+<Output>
+- Use Markdown bem formatado para as respostas.
+- Siga rigorosamente o Visual_Protocol acima.
+</Output>
 
 <History>
 {historico_conversa}

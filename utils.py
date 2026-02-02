@@ -79,7 +79,6 @@ def fatiar_por_artigos(texto_completo, titulo, url):
         match_num = re.search(r'Art[\.\s]\s*(\d+)', chunk, re.IGNORECASE)
         num_art = match_num.group(1) if match_num else "N/A"
         
-        # --- AQUI A MÁGICA: LLAMAINDEX ENTRA EM AÇÃO ---
         # O split_text só vai quebrar SE o texto for maior que o chunk_size (1024 tokens)
         sub_textos = splitter.split_text(chunk)
         

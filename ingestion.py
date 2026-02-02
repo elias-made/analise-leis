@@ -68,7 +68,7 @@ def run_ingestion_batch(documentos_batch):
 # 4. PROCESSAMENTO OTIMIZADO
 def processar_urls_stream(lista_urls: list):
     Settings.embed_model = LLM.embed_model 
-    Settings.llm = LLM.llm_sonnet
+    Settings.llm = LLM.llm_haiku
     
     total_urls = len(lista_urls)
     fatia_por_url = 1.0 / total_urls
