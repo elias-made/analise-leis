@@ -5,14 +5,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-# Copia os arquivos de configuração do uv (em vez do requirements)
+# Copia apenas os arquivos de dependências primeiro (otimiza o cache do Docker)
 COPY pyproject.toml uv.lock ./
 
 # Instala as dependências de forma idêntica ao seu PC
 RUN uv sync --frozen --no-cache
 
-# Copia o resto do código
+# Copia o resto do código da aplicação
 COPY . .
 
-# Comando para rodar (usando o ambiente do uv)
+# O CMD oficial da imagem. O Docker Compose usará este por padrão.
 CMD ["uv", "run", "streamlit", "run", "app.py", "--server.address=0.0.0.0"]

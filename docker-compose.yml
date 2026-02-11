@@ -1,32 +1,80 @@
 version: "3.8"
 
 services:
-  # Serviço 1: Banco de Dados Vetorial
+  # 1. VECTOR DATABASE (Qdrant)
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: qdrant_db
+    container_name: juridico_qdrant
     ports:
       - "6333:6333"
     volumes:
-      # Salva os dados na sua pasta local 'qdrant_data' para não perder ao reiniciar
       - qdrant_data:/qdrant/storage
+    networks:
+      - juridico_net
+    restart: unless-stopped
 
-  # Serviço 2: Sua Aplicação Streamlit
+  # 2. RELATIONAL DATABASE (PostgreSQL)
+  postgres:
+    image: postgres:15
+    container_name: juridico_postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: juridico_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - juridico_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d juridico_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # 3. CACHE (Redis)
+  redis:
+    image: redis/redis-stack:latest
+    container_name: juridico_redis
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    volumes:
+      - redis_data:/data
+    networks:
+      - juridico_net
+    restart: unless-stopped
+
+  # 4. APP PRINCIPAL
   app:
     build: .
-    container_name: juridico_ai_app
+    container_name: juridico_app
     ports:
       - "8501:8501"
-    depends_on:
-      - qdrant # Espera o Qdrant iniciar antes de subir o app
+    volumes:
+      - .:/app
     environment:
-      # Configurações para o Python ler via os.getenv
       - QDRANT_URL=http://qdrant:6333
-      - APP_USER=admin
-      - APP_PASSWORD=admin
-    # Lê o arquivo .env local para pegar as chaves da AWS
-    env_file:
-      - .env
+      - DB_URL=postgresql://admin:admin@postgres:5432/juridico_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      qdrant:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - juridico_net
+    restart: on-failure
 
 volumes:
   qdrant_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  juridico_net:
+    driver: bridge

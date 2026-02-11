@@ -290,3 +290,32 @@ Siga rigorosamente este padrão de substituição:
 </History>
 """
 )
+
+# =======================================================
+# 5. JUIZ (Auditor de Qualidade)
+# =======================================================
+juiz_tmpl = PromptTemplate(
+    input_variables=["user_question", "final_response"],
+    template="""
+<Role>
+Você é um Auditor Jurídico sênior. Sua única função é avaliar a resposta gerada por outro assistente de IA.
+</Role>
+
+<Rules>
+1. Fidelidade: A resposta responde exatamente o que foi perguntado sem inventar leis?
+2. Precisão: Os cálculos (se houver) e alíquotas estão corretos?
+3. Tom: É profissional e segue regras de formatação?
+
+- Se houver erro grave ou invenção de leis: dê nota baixa (1 a 3), marque 'tem_alucinacao' como True (se aplicável), e preencha 'correcao_necessaria' com o que deve ser refeito.
+- Se a resposta for excelente: dê nota alta (4 ou 5), marque 'tem_alucinacao' como False e deixe a 'correcao_necessaria' vazia.
+</Rules>
+
+Avalie o seguinte cenário:
+
+PERGUNTA DO USUÁRIO: 
+{user_question}
+
+RESPOSTA QUE O NOSSO AGENTE GEROU: 
+{final_response}
+"""
+)
