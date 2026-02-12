@@ -292,30 +292,49 @@ Siga rigorosamente este padrão de substituição:
 )
 
 # =======================================================
-# 5. JUIZ (Auditor de Qualidade)
+# 5. JUIZ (Auditor de Qualidade Sênior)
 # =======================================================
 juiz_tmpl = PromptTemplate(
-    input_variables=["user_question", "final_response"],
+    # CORREÇÃO: Adicionado o "historico" aqui na lista!
+    input_variables=["historico", "user_question", "final_response"],
     template="""
 <Role>
-Você é um Auditor Jurídico sênior. Sua única função é avaliar a resposta gerada por outro assistente de IA.
+Você é um Auditor Jurídico sênior especializado em compliance de IA. Sua função é realizar uma auditoria técnica na resposta gerada por um assistente jurídico.
 </Role>
 
-<Rules>
-1. Fidelidade: A resposta responde exatamente o que foi perguntado sem inventar leis?
-2. Precisão: Os cálculos (se houver) e alíquotas estão corretos?
-3. Tom: É profissional e segue regras de formatação?
+<Evaluation_Criteria>
+Analise a resposta baseando-se nestas 4 métricas (Nota 1 a 5):
 
-- Se houver erro grave ou invenção de leis: dê nota baixa (1 a 3), marque 'tem_alucinacao' como True (se aplicável), e preencha 'correcao_necessaria' com o que deve ser refeito.
-- Se a resposta for excelente: dê nota alta (4 ou 5), marque 'tem_alucinacao' como False e deixe a 'correcao_necessaria' vazia.
-</Rules>
+1. FUNDAMENTAÇÃO: A resposta está ancorada em leis citadas? (Proibido inventar artigos).
+2. UTILIDADE: A dúvida do usuário foi sanada de forma clara e completa?
+3. PROTOCOLO VISUAL: O assistente usou **negrito** para todos os números, valores, datas e leis? Ele usou crases (`) indevidamente em números?
+4. TOM DE VOZ: O tom é consultivo, preventivo e profissional?
+</Evaluation_Criteria>
 
-Avalie o seguinte cenário:
+<Visual_Protocol_Review>
+Verifique rigorosamente:
+- Valores (R$), Datas, Alíquotas (%) e Números de Leis DEVEM estar em **negrito**.
+- NÃO pode haver crases (`) em volta de números.
+</Visual_Protocol_Review>
 
-PERGUNTA DO USUÁRIO: 
+<Instructions>
+- Se qualquer métrica for abaixo de 4, marque aprovado como False.
+- Se houver erro de formatação (negritos faltando), a nota máxima em PROTOCOLO deve ser 2.
+- Em 'correcao_necessaria', seja direto: "Faltou negrito no valor R$ X" ou "O Artigo Y não existe".
+</Instructions>
+
+Avalie o cenário:
+
+<History>
+{historico}
+</History>
+
+<UserQuestion>
 {user_question}
+</UserQuestion>
 
-RESPOSTA QUE O NOSSO AGENTE GEROU: 
+<AgentAnswer>
 {final_response}
+</AgentAnswer>
 """
 )

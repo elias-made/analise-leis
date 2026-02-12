@@ -1,4 +1,5 @@
 import re
+from typing import List
 import requests
 from bs4 import BeautifulSoup
 import unicodedata
@@ -100,3 +101,19 @@ def fatiar_por_artigos(texto_completo, titulo, url):
             })
             
     return chunks_processados
+
+def preparar_historico_estruturado(chat_history: List[str]) -> List[dict]:
+    """Transforma a lista de strings ["User: X", "AI: Y"] em [{"role": "user", "content": "X"}, ...]"""
+    historico_formatado = []
+    for msg in chat_history:
+        if msg.startswith("User: "):
+            historico_formatado.append({
+                "role": "user", 
+                "content": msg.replace("User: ", "").strip()
+            })
+        elif msg.startswith("AI: "):
+            historico_formatado.append({
+                "role": "assistant", 
+                "content": msg.replace("AI: ", "").strip()
+            })
+    return historico_formatado

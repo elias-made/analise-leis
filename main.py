@@ -7,9 +7,14 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.base import BaseCheckpointSaver
 import Agents
 from pydantic import BaseModel, Field
+from langchain_core.runnables import RunnableConfig
 
-from Prompts import juiz_tmpl
-from LLM import sonnet_bedrock_model
+import threading
+import asyncio
+
+from langfuse import Langfuse
+from utils import preparar_historico_estruturado
+langfuse_client = Langfuse()
 
 TRIBUTARIO = "tributario"
 TRABALHISTA = "trabalhista"
@@ -26,9 +31,6 @@ class WorkflowState:
     chat_history: List[str] = field(default_factory=list)
     classification_profile: str = None
     final_response: str = None
-    judge_feedback: str = ""
-    revision_count: int = 0
-    is_approved: bool = False
 
 # =======================================================
 # 2. HELPER (Auxiliar para atualizar memória)
@@ -50,10 +52,13 @@ def _atualizar_historico(state: WorkflowState, resposta_ai: str) -> List[str]:
 _engine_instance = None
 
 def _preparar_dependencias(state: WorkflowState) -> Agents.LegalDeps:
-    historico_str = "\n".join(state.chat_history)
+    # Em vez de criar uma string gigante com .join("\n"), 
+    # criamos a lista de objetos estruturada.
+    historico_limpo = preparar_historico_estruturado(state.chat_history)
+    
     return Agents.LegalDeps(
         query_engine=_engine_instance,
-        historico_conversa=historico_str
+        historico_conversa=historico_limpo # Enviamos a lista de dicts
     )
 
 async def node_router(state: WorkflowState):
@@ -78,9 +83,6 @@ async def node_tributario(state: WorkflowState):
     deps = _preparar_dependencias(state)
     
     pergunta = state.user_question
-    if state.judge_feedback and state.revision_count > 0:
-        logging.info(f"🔄 Refazendo resposta Tributária (Tentativa {state.revision_count})...")
-        pergunta += f"\n\n[INSTRUÇÃO DO AUDITOR PARA CORREÇÃO]:\n{state.judge_feedback}"
 
     result = await Agents.tributario_agent.run(pergunta, deps=deps)
     
@@ -91,9 +93,6 @@ async def node_trabalhista(state: WorkflowState):
     deps = _preparar_dependencias(state)
     
     pergunta = state.user_question
-    if state.judge_feedback and state.revision_count > 0:
-        logging.info(f"🔄 Refazendo resposta Trabalhista (Tentativa {state.revision_count})...")
-        pergunta += f"\n\n[INSTRUÇÃO DO AUDITOR PARA CORREÇÃO]:\n{state.judge_feedback}"
 
     result = await Agents.trabalhista_agent.run(pergunta, deps=deps)
     
@@ -104,9 +103,6 @@ async def node_societario(state: WorkflowState):
     deps = _preparar_dependencias(state)
     
     pergunta = state.user_question
-    if state.judge_feedback and state.revision_count > 0:
-        logging.info(f"🔄 Refazendo resposta Societária (Tentativa {state.revision_count})...")
-        pergunta += f"\n\n[INSTRUÇÃO DO AUDITOR PARA CORREÇÃO]:\n{state.judge_feedback}"
 
     result = await Agents.societario_agent.run(pergunta, deps=deps)
     
@@ -139,39 +135,86 @@ async def node_out_of_scope(state: WorkflowState):
         "chat_history": _atualizar_historico(state, resp)
     }
     
+# =======================================================
+# TRABALHADOR PARALELO (Imune ao Streamlit)
+# =======================================================
+def _auditoria_thread(user_question, final_response, chat_history, profile, deps_query_engine, historico_str, session_id):
+    async def _run_async_judge():
+        try:
+            deps = Agents.LegalDeps(query_engine=deps_query_engine, historico_conversa=historico_str)
+            
+            texto_pronto = Prompts.juiz_tmpl.format(
+                historico=historico_str,
+                user_question=user_question,
+                final_response=final_response
+            )
+            
+            result = await Agents.judge_agent.run(texto_pronto, deps=deps)
+            m = result.output.metricas
+            
+            # FORMATANDO PARA O LANGFUSE (O visual 'legal' que você queria)
+            historico_visual = preparar_historico_estruturado(chat_history)
 
-async def node_juiz(state: WorkflowState):
-    logging.info("--- AGENTE: Juiz (Avaliando Resposta) ---")
-    deps = _preparar_dependencias(state)
-    
-    texto_pronto_para_o_juiz = Prompts.juiz_tmpl.format(
-        user_question=state.user_question,
-        final_response=state.final_response
-    )
-    
-    # O Agents.judge_agent deve estar configurado com result_type=AvaliacaoJuiz
-    result = await Agents.judge_agent.run(texto_pronto_para_o_juiz, deps=deps)
-    veredito = result.output
-    
-    # Critério rígido de aprovação
-    aprovado = veredito.nota >= 4 and not veredito.tem_alucinacao
-    revisoes = state.revision_count + 1
-    
-    logging.info(f"⚖️ NOTA DO JUIZ: {veredito.nota}/5 | Aprovado: {aprovado} | Motivo: {veredito.justificativa}")
-    
-    # Só atualiza o histórico se foi aprovado ou se já esgotou as tentativas
-    novo_historico = state.chat_history
-    if aprovado or revisoes >= 2:
-        novo_historico = _atualizar_historico(state, state.final_response)
-        if revisoes >= 2 and not aprovado:
-            logging.warning("⚠️ Limite de 2 revisões atingido. Enviando resposta como está.")
+            trace = langfuse_client.trace(
+                name="Auditoria_Juiz",
+                session_id=session_id,
+                input={
+                    "pergunta_usuario": user_question,
+                    "contexto_anterior": historico_visual, 
+                },
+                output=final_response,
+                tags=[profile or "geral"]
+            )
+            
+            # ... resto do código de scores (Fundamentação, Utilidade, etc) ...
+            trace.score(name="Fundamentacao", value=m.fundamentacao)
+            trace.score(name="Utilidade", value=m.utilidade)
+            trace.score(name="Protocolo_Visual", value=m.protocolo_visual)
+            trace.score(name="Tom_de_Voz", value=m.tom_de_voz)
+            
+            langfuse_client.flush()
+        except Exception as e:
+            logging.error(f"Erro na Thread do Juiz: {e}")
 
+    asyncio.run(_run_async_judge())
+
+
+# =======================================================
+# NÓ DO GRAFO (Ultra rápido)
+# =======================================================
+async def node_juiz(state: WorkflowState, config: RunnableConfig = None):
+    logging.info("--- AGENTE: Juiz (Disparando Thread Paralela) ---")
+    
+    # LÓGICA DE SEGURANÇA: Garante que temos um session_id mesmo sem config
+    session_id = "sessao_padrao"
+    if config and "configurable" in config:
+        session_id = config["configurable"].get("thread_id", "sessao_padrao")
+    
+    # 1. Atualiza o histórico imediatamente
+    novo_historico = _atualizar_historico(state, state.final_response)
+    historico_str = "\n".join(state.chat_history) if state.chat_history else "Nenhuma conversa anterior."
+
+    # 2. CHUTE INVISÍVEL REAL: Cria uma Thread nativa do Sistema Operacional
+    threading.Thread(
+        target=_auditoria_thread,
+        args=(
+            state.user_question,
+            state.final_response,
+            state.chat_history,
+            state.classification_profile,
+            _engine_instance,
+            historico_str,
+            session_id # Passamos o ID seguro
+        ),
+        daemon=True 
+    ).start()
+
+    # 3. Retorna instantaneamente
     return {
-        "judge_feedback": veredito.correcao_necessaria if not aprovado else "",
-        "is_approved": aprovado,
-        "revision_count": revisoes,
         "chat_history": novo_historico
     }
+
+
 # =======================================================
 # 3. LÓGICA E CRIAÇÃO
 # =======================================================
@@ -186,21 +229,6 @@ def check_profile_logic(state: WorkflowState):
         return CONVERSATIONAL
     else:
         return OUT_OF_SCOPE
-    
-def rotear_pos_juiz(state: WorkflowState):
-    """Verifica se encerra ou devolve para o agente que errou."""
-    if state.is_approved or state.revision_count >= 2:
-        return "end"
-    
-    # Se não foi aprovado, devolve para a caixinha certa
-    if state.classification_profile == TRIBUTARIO: 
-        return TRIBUTARIO
-    elif state.classification_profile == TRABALHISTA: 
-        return TRABALHISTA
-    elif state.classification_profile == SOCIETARIO: 
-        return SOCIETARIO
-    
-    return "end" # Fallback de segurança
 
 def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     global _engine_instance
@@ -245,13 +273,6 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     workflow.add_edge(NODE_CONVERSATIONAL, END)
     workflow.add_edge(NODE_OUT_OF_SCOPE, END)
 
-    mapa_juiz = {
-        TRIBUTARIO: NODE_TRIBUTARIO,
-        TRABALHISTA: NODE_TRABALHISTA,
-        SOCIETARIO: NODE_SOCIETARIO,
-        "end": END
-    }
-
-    workflow.add_conditional_edges(NODE_JUIZ, rotear_pos_juiz, mapa_juiz)
+    workflow.add_edge(NODE_JUIZ, END)
     
     return workflow.compile(checkpointer=checkpointer)

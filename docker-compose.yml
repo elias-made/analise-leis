@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # 1. VECTOR DATABASE (Qdrant)
   qdrant:
@@ -25,13 +23,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-langfuse.sql:/docker-entrypoint-initdb.d/init-langfuse.sql
     networks:
       - juridico_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d juridico_db"]
+      # AGORA ELE ESPERA O BANCO LANGFUSE NASCER!
+      test: ["CMD-SHELL", "pg_isready -U admin -d langfuse"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
     restart: unless-stopped
 
   # 3. CACHE (Redis)
@@ -69,6 +69,37 @@ services:
     networks:
       - juridico_net
     restart: on-failure
+
+  # 5. OBSERVABILIDADE (Langfuse)
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: juridico_langfuse
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://admin:admin@postgres:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=aisjdoasdasjdasjdasdj8asd
+      - SALT=asdnalsdnaouisdbiuawduiawduiawduanwudnawud
+      - TELEMETRY_ENABLED=false # Total privacidade
+
+      # --- CONFIGURAÇÕES DE AUTO-CRIAÇÃO (HEADLESS INIT) ---
+      # ATENÇÃO: Nunca use aspas nestes valores
+      - LANGFUSE_INIT_USER_EMAIL=admin@admin.com
+      - LANGFUSE_INIT_USER_PASSWORD=adminpassword
+      - LANGFUSE_INIT_ORG_ID=org-minha-ia-juridica
+      - LANGFUSE_INIT_ORG_NAME=MinhaIAJuridica
+      - LANGFUSE_INIT_PROJECT_ID=proj-gestao-leis
+      - LANGFUSE_INIT_PROJECT_NAME=GestaoLeis
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-1234567890
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-1234567890
+    networks:
+      - juridico_net
 
 volumes:
   qdrant_data:

@@ -1,4 +1,5 @@
 import os
+from typing import List
 import redis
 import numpy as np
 import hashlib
@@ -163,7 +164,7 @@ def buscar_com_cache_semantico(engine: BaseQueryEngine, pergunta_usuario: str) -
 @dataclass
 class LegalDeps:
     query_engine: BaseQueryEngine
-    historico_conversa: str
+    historico_conversa: List[dict]
 
 # =======================================================
 # 3. AGENTES
@@ -207,12 +208,17 @@ conversational_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)
 def prompt_conversational(ctx: RunContext[LegalDeps]) -> str:
     return Prompts.conversational_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
 
-# Estrutura do veredito
+class MetricasAuditoria(BaseModel):
+    fundamentacao: int = Field(description="Nota 1-5 para citações e veracidade legal")
+    utilidade: int = Field(description="Nota 1-5 para clareza e solução do problema")
+    protocolo_visual: int = Field(description="Nota 1-5 para uso de negritos e ausência de crases")
+    tom_de_voz: int = Field(description="Nota 1-5 para profissionalismo e prudência")
+
 class AvaliacaoJuiz(BaseModel):
-    nota: int = Field(description="Nota de 1 a 5 para a resposta")
-    justificativa: str = Field(description="Explicação do porquê da nota")
-    tem_alucinacao: bool = Field(description="Se a IA inventou fatos fora dos documentos")
-    correcao_necessaria: str = Field(description="O que o agente deve mudar se a nota for baixa")
+    metricas: MetricasAuditoria
+    aprovado: bool = Field(description="True se todas as métricas forem >= 4")
+    justificativa: str = Field(description="Resumo da avaliação das métricas")
+    correcao_necessaria: str = Field(description="O que exatamente deve ser corrigido")
 
 # --- Agente Juiz ---
 judge_agent = Agent(
