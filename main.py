@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 
 import threading
 import asyncio
+import fitz
 
 from langfuse import Langfuse
 from utils import preparar_historico_estruturado
@@ -29,6 +30,8 @@ OUT_OF_SCOPE = "out_of_scope"
 @dataclass
 class WorkflowState:
     user_question: str
+    file_path: str = None
+    document_content: str = ""
     chat_history: List[str] = field(default_factory=list)
     classification_profile: str = None
     final_response: str = None
@@ -59,8 +62,40 @@ def _preparar_dependencias(state: WorkflowState) -> Agents.LegalDeps:
     
     return Agents.LegalDeps(
         query_engine=_engine_instance,
-        historico_conversa=historico_limpo # Enviamos a lista de dicts
+        historico_conversa=historico_limpo,
+        documento_texto=state.document_content or "Nenhum documento anexado."
     )
+
+async def node_leitor(state: WorkflowState):
+    logging.info("--- NODE: Leitor de Documentos (PDF) ---")
+    
+    # 1. Se não tiver arquivo, segue o baile vazio
+    if not state.file_path:
+        logging.info("Nenhum arquivo anexado. Pulando leitura.")
+        return {"document_content": ""}
+
+    # 2. Tenta ler o PDF
+    try:
+        texto_extraido = ""
+        # Abre o PDF usando PyMuPDF (fitz)
+        with fitz.open(state.file_path) as doc:
+            for pagina in doc:
+                texto_extraido += pagina.get_text() + "\n"
+        
+        # TRUNCAMENTO DE SEGURANÇA (Para não estourar tokens do LLM)
+        # Limita a aprox. 15.000 caracteres (ajuste conforme seu modelo/quota)
+        limite_chars = 15000
+        if len(texto_extraido) > limite_chars:
+            texto_extraido = texto_extraido[:limite_chars] + "\n...[CONTEÚDO TRUNCADO PELO SISTEMA]..."
+            logging.warning(f"Documento muito grande. Truncado em {limite_chars} caracteres.")
+        
+        logging.info(f"Leitura concluída. Extraídos {len(texto_extraido)} caracteres.")
+        return {"document_content": texto_extraido}
+
+    except Exception as e:
+        erro_msg = f"Erro ao ler o arquivo: {str(e)}"
+        logging.error(erro_msg)
+        return {"document_content": "ERRO: Não foi possível ler o documento anexado."}
 
 async def node_router(state: WorkflowState):
     logging.info("--- ROUTER: Classificando perfil ---")
@@ -162,8 +197,8 @@ def _auditoria_thread(user_question, final_response, chat_history, profile, deps
             
             result = await Agents.judge_agent.run(texto_pronto, deps=deps)
             m = result.output.metricas
+            sugestao = result.output.correcao_necessaria
             
-            # FORMATANDO PARA O LANGFUSE (O visual 'legal' que você queria)
             historico_visual = preparar_historico_estruturado(chat_history)
 
             trace = langfuse_client.trace(
@@ -171,17 +206,17 @@ def _auditoria_thread(user_question, final_response, chat_history, profile, deps
                 session_id=session_id,
                 input={
                     "pergunta_usuario": user_question,
-                    "contexto_anterior": historico_visual, 
+                    "contexto_anterior": historico_visual,
+                    "resposta_avaliada": final_response,
                 },
-                output=final_response,
+                output=sugestao,
                 tags=[profile or "geral"]
             )
             
-            # ... resto do código de scores (Fundamentação, Utilidade, etc) ...
             trace.score(name="Fundamentacao", value=m.fundamentacao)
             trace.score(name="Utilidade", value=m.utilidade)
-            trace.score(name="Protocolo_Visual", value=m.protocolo_visual)
             trace.score(name="Tom_de_Voz", value=m.tom_de_voz)
+            trace.score(name="Protocolo_Visual", value=m.protocolo_visual)
             
             langfuse_client.flush()
         except Exception as e:
@@ -247,6 +282,7 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     global _engine_instance
     _engine_instance = query_engine
 
+    NODE_LEITOR = "node_leitor"
     NODE_ROUTER = "node_router"
     NODE_SIMPLES = f"node_{SIMPLES}"
     NODE_TRABALHISTA = f"node_{TRABALHISTA}"
@@ -257,6 +293,7 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     NODE_JUIZ = "node_juiz"
     
     workflow = StateGraph(WorkflowState)
+    workflow.add_node(NODE_LEITOR, node_leitor)
     workflow.add_node(NODE_ROUTER, node_router)
     workflow.add_node(NODE_SIMPLES, node_simples)
     workflow.add_node(NODE_TRABALHISTA, node_trabalhista)
@@ -266,7 +303,8 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     workflow.add_node(NODE_OUT_OF_SCOPE, node_out_of_scope)
     workflow.add_node(NODE_JUIZ, node_juiz)
     
-    workflow.add_edge(START, NODE_ROUTER)
+    workflow.add_edge(START, NODE_LEITOR)
+    workflow.add_edge(NODE_LEITOR, NODE_ROUTER)
 
     mapa_decisao = {
         SIMPLES: NODE_SIMPLES,

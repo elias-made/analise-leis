@@ -48,6 +48,7 @@ services:
     restart: unless-stopped
 
   # 4. APP PRINCIPAL
+  # 4. APP PRINCIPAL
   app:
     build: .
     container_name: juridico_app
@@ -59,12 +60,16 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - DB_URL=postgresql://admin:admin@postgres:5432/juridico_db
       - REDIS_URL=redis://redis:6379/0
+      - LANGFUSE_HOST=http://langfuse:3000
+
     depends_on:
       qdrant:
         condition: service_started
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+      langfuse:
         condition: service_started
     networks:
       - juridico_net

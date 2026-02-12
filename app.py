@@ -25,7 +25,7 @@ from psycopg_pool import AsyncConnectionPool
 import traceback
 
 # =========================================================
-# CONFIGURAÇÃO GERAL E CSS (ESTILO CHATGPT)
+# CONFIGURAÇÃO GERAL E CSS
 # =========================================================
 logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(sys.stdout)], force=True)
 
@@ -57,7 +57,6 @@ st.markdown("""
         text-align: center !important;
         border: 1px solid #ff4b4b;
     }
-    /* Esconde elementos padrão do Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -89,10 +88,8 @@ async def init_db_tables():
             await conn.execute(sql)
 
 async def criar_nova_conversa_db(user_id, titulo, thread_id=None):
-    """Cria a linha no banco. Se não passar ID, gera um."""
     if not thread_id:
         thread_id = str(uuid.uuid4())
-        
     sql = "INSERT INTO user_threads (thread_id, user_id, title) VALUES (%s, %s, %s)"
     async with AsyncConnectionPool(conninfo=DB_URL, kwargs={"autocommit": True}) as pool:
         async with pool.connection() as conn:
@@ -136,10 +133,6 @@ async def excluir_conversa_db(thread_id):
             await conn.execute(sql, (thread_id,))
 
 def gerar_titulo_inteligente_sync(primeira_pergunta):
-    """
-    Versão SÍNCRONA e blindada para gerar títulos.
-    Usa .complete() em vez de .acomplete() para evitar erros de loop.
-    """
     print(f"🤖 IA TÍTULO: Iniciando geração para: {primeira_pergunta[:15]}...")
     try:
         prompt = (
@@ -148,16 +141,12 @@ def gerar_titulo_inteligente_sync(primeira_pergunta):
             f"Frase: {primeira_pergunta}\n"
             f"Título:"
         )
-        
-        # CHAMADA SÍNCRONA (Bloqueia rapidinho e garante o retorno)
         resposta = LLM.llm_haiku.complete(prompt)
         titulo_limpo = resposta.text.strip().replace('"', '').replace('.', '')
-        
         print(f"✅ IA TÍTULO: Sucesso -> '{titulo_limpo}'")
         return titulo_limpo
     except Exception as e:
         print(f"❌ IA TÍTULO: Falhou! Erro: {e}")
-        # Retorna None para sabermos que falhou, ou um fallback com timestamp
         return f"Chat {time.strftime('%H:%M')}"
 
 # =========================================================
@@ -172,6 +161,7 @@ def carregar_engine_rag():
         client = QdrantClient(url=QDRANT_URL, prefer_grpc=False)
         vector_store = QdrantVectorStore(collection_name="leis_v3", client=client, enable_hybrid=False)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
+        index.as_query_engine(similarity_top_k=5)
         return index.as_query_engine(similarity_top_k=5)
     except Exception as e:
         st.error(f"Erro ao carregar IA: {e}")
@@ -179,7 +169,8 @@ def carregar_engine_rag():
 
 query_engine = carregar_engine_rag()
 
-async def processar_chat(prompt_usuario, thread_id):
+# --- ATUALIZAÇÃO AQUI: Adicionado parâmetro file_path ---
+async def processar_chat(prompt_usuario, thread_id, file_path=None):
     async with AsyncConnectionPool(conninfo=DB_URL, max_size=10, kwargs={"autocommit": True}) as pool:
         checkpointer = AsyncPostgresSaver(pool)
         await checkpointer.setup()
@@ -187,7 +178,13 @@ async def processar_chat(prompt_usuario, thread_id):
         workflow = main.create_workflow(query_engine, checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
         
-        estado_input = {"user_question": prompt_usuario}
+        # Passando o file_path para o estado (se houver)
+        estado_input = {
+            "user_question": prompt_usuario,
+            "file_path": file_path
+        }
+        
+        # Usamos ainvoke para garantir que o PydanticAI complete a execução
         resultado = await workflow.ainvoke(estado_input, config=config)
         return resultado["final_response"]
 
@@ -235,12 +232,17 @@ def modal_excluir(thread_id):
         st.rerun()
 
 # =========================================================
-# 5. UI - CHAT (LÓGICA CHATGPT)
+# 5. UI - CHAT
 # =========================================================
 def render_chat_message(role, text):
     avatar = "🧑‍💼" if role == "user" else "⚖️"
     with st.chat_message(role, avatar=avatar):
         st.markdown(text)
+
+def stream_text(text):
+    for word in text.split(" "):
+        yield word + " "
+        time.sleep(0.02)
 
 def pagina_chat():
     user_id = st.session_state["username"]
@@ -251,13 +253,12 @@ def pagina_chat():
     except:
         conversas_db = []
 
-    # --- 2. LÓGICA DE SELEÇÃO (Limbo vs Selecionado) ---
+    # --- 2. LÓGICA DE SELEÇÃO ---
     if "current_thread_id" not in st.session_state:
         st.session_state["current_thread_id"] = None
 
     thread_atual_id = st.session_state["current_thread_id"]
     
-    # Define o título para exibição
     titulo_atual = "Nova Conversa"
     if thread_atual_id:
         for cid, ctitle in conversas_db:
@@ -265,7 +266,7 @@ def pagina_chat():
                 titulo_atual = ctitle
                 break
     else:
-        st.session_state.messages = [] # Limpa tela se estiver no limbo
+        st.session_state.messages = [] 
 
     # --- 3. SIDEBAR ---
     with st.sidebar:
@@ -307,58 +308,76 @@ def pagina_chat():
         st.subheader("Nova Conversa")
         st.caption("Qual sua dúvida jurídica de hoje?")
 
-    # --- 5. RENDERIZA MENSAGENS ---
+    # --- 5. RENDERIZA MENSAGENS ANTIGAS ---
     for msg in st.session_state.messages:
         render_chat_message(msg["role"], msg["content"])
 
-    # --- 6. INPUT E PROCESSAMENTO ---
+    # --- 6. UPLOAD DE ARQUIVO (NOVIDADE) ---
+    # Colocamos um expander para anexos antes do input
+    uploaded_file_path = None
+    with st.expander("📎 Anexar Documento (PDF)", expanded=False):
+        arquivo_upload = st.file_uploader("Selecione um PDF para análise", type=["pdf"], key="pdf_uploader")
+        
+        if arquivo_upload:
+            # Salva o arquivo temporariamente para o backend ler
+            os.makedirs("uploads", exist_ok=True)
+            uploaded_file_path = f"uploads/{arquivo_upload.name}"
+            with open(uploaded_file_path, "wb") as f:
+                f.write(arquivo_upload.getbuffer())
+            st.caption(f"Arquivo pronto: {arquivo_upload.name}")
+
+    # --- 7. INPUT E PROCESSAMENTO ---
     if prompt := st.chat_input("Digite aqui..."):
-        # 1. Mostra msg do usuário
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        render_chat_message("user", prompt)
+        # Mostra msg do usuário
+        
+        # Se tiver arquivo, adiciona um aviso visual na mensagem do usuário
+        display_prompt = prompt
+        if uploaded_file_path:
+            display_prompt = f"📄 *[Arquivo Anexado: {os.path.basename(uploaded_file_path)}]*\n\n{prompt}"
+            
+        st.session_state.messages.append({"role": "user", "content": display_prompt})
+        render_chat_message("user", display_prompt)
         
         if not query_engine:
             st.error("IA Offline.")
             return
 
-        # 2. SE FOR NOVO (Limbo), CRIA O ID AGORA
+        # Lógica de Novo Chat
         flag_novo_chat = False
         if thread_atual_id is None:
             novo_id = str(uuid.uuid4())
-            # Cria no banco com nome provisório
             asyncio.run(criar_nova_conversa_db(user_id, "Nova Conversa...", thread_id=novo_id))
             st.session_state["current_thread_id"] = novo_id
             thread_atual_id = novo_id
             flag_novo_chat = True
-            print("🆕 Novo Chat Criado no Banco (Limbo -> Real)")
 
         with st.chat_message("assistant", avatar="⚖️"):
-            with st.spinner("Analisando legislação..."):
+            # Feedback de 'Pensando'
+            spinner_msg = "Lendo documento e analisando..." if uploaded_file_path else "Analisando legislação e jurisprudência..."
+            
+            with st.spinner(spinner_msg):
                 try:
-                    # 3. GERA RESPOSTA DA IA (Principal)
-                    resposta = asyncio.run(processar_chat(prompt, thread_atual_id))
-                    
-                    st.markdown(resposta)
-                    st.session_state.messages.append({"role": "assistant", "content": resposta})
-
-                    # 4. RENOMEAÇÃO (O PULO DO GATO 😺)
-                    # Se acabou de criar OU se o nome ainda é o padrão
-                    if flag_novo_chat or (len(st.session_state.messages) <= 2 and "Nova Conversa" in titulo_atual):
-                        
-                        # Chama a função SÍNCRONA nova (sem await)
-                        novo_titulo = gerar_titulo_inteligente_sync(prompt)
-                        
-                        # Salva no banco (usamos asyncio só para o banco, que é rápido)
-                        if novo_titulo:
-                            print(f"💾 Salvando título no banco: {novo_titulo}")
-                            asyncio.run(atualizar_titulo_chat_db(thread_atual_id, novo_titulo))
-                            
-                            # Força o Streamlit a recarregar a página para atualizar a Sidebar
-                            st.rerun()
-                    
+                    # Passamos o path do arquivo para o backend processar
+                    resposta_final = asyncio.run(
+                        processar_chat(prompt, thread_atual_id, file_path=uploaded_file_path)
+                    )
                 except Exception as e:
-                    st.error(f"Erro no processamento: {str(e)}")
-                    traceback.print_exc()
+                    st.error(f"Erro: {e}")
+                    resposta_final = "Erro ao processar sua solicitação."
+
+            # Streaming Visual
+            if resposta_final:
+                st.write_stream(stream_text(resposta_final))
+                
+                # Salva no histórico da sessão
+                st.session_state.messages.append({"role": "assistant", "content": resposta_final})
+
+                # Renomeação Inteligente
+                if flag_novo_chat or (len(st.session_state.messages) <= 2 and "Nova Conversa" in titulo_atual):
+                    novo_titulo = gerar_titulo_inteligente_sync(prompt)
+                    if novo_titulo:
+                        asyncio.run(atualizar_titulo_chat_db(thread_atual_id, novo_titulo))
+                        st.rerun()
 
 # =========================================================
 # 6. GESTÃO DE LEIS
@@ -393,10 +412,28 @@ def pagina_ingestao():
         with c1: st.subheader("Base Atual")
         with c2: 
             if st.button("🔄"): st.rerun()
-        with st.spinner("Carregando..."):
+        
+        st.divider()
+
+        with st.spinner("Carregando leis..."):
             urls = ingestion.listar_urls_no_banco()
-        if urls: st.dataframe(pd.DataFrame(urls, columns=["Fonte"]), use_container_width=True, hide_index=True)
-        else: st.info("Vazio.")
+        
+        if urls:
+            for i, u in enumerate(urls):
+                col_url, col_btn = st.columns([0.85, 0.15])
+                with col_url:
+                    st.markdown(f"🔗 `{u}`")
+                with col_btn:
+                    if st.button("🗑️", key=f"del_{i}", help=f"Excluir {u}"):
+                        with st.spinner("Removendo..."):
+                            if ingestion.excluir_lei_no_banco(u):
+                                st.toast(f"Lei removida: {u}", icon="✅")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Erro ao excluir.")
+        else:
+            st.info("A base de dados está vazia.")
 
 # =========================================================
 # 7. ROTEAMENTO

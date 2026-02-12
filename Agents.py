@@ -30,38 +30,27 @@ from LLM import (
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = 6379
 INDEX_NAME = "idx:rag_cache_v1"
-
-# --- MUDANÇA CRUCIAL: Variável global para guardar a dimensão real ---
 REAL_VECTOR_DIM = 1024 
-
 USE_REDIS = False
 _redis_client = None
 
 def gerar_hash_estavel(texto: str) -> str:
-    """Gera um ID único e constante para a mesma string (MD5)."""
     return hashlib.md5(texto.encode('utf-8')).hexdigest()
 
 try:
-    # 1. Conexão Binária
     redis_url = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/0")
     _redis_client = redis.Redis.from_url(redis_url, decode_responses=False) 
     _redis_client.ping()
     print(f"✅ REDIS STACK: Conectado (Modo Binário).")
     USE_REDIS = True
 
-    # 2. AUTO-DETECÇÃO DE DIMENSÃO (O Segredo!)
-    # Geramos um embedding de teste para ver o tamanho real que o modelo cospe.
     print("📏 Medindo dimensão do embedding...")
     test_vec = embed_model.get_query_embedding("teste de dimensao")
     REAL_VECTOR_DIM = len(test_vec)
     print(f"📏 Dimensão detectada: {REAL_VECTOR_DIM} (Ajustado automaticamente)")
 
-    # 3. SETUP DO ÍNDICE
     try:
         info = _redis_client.ft(INDEX_NAME).info()
-        # Se o índice já existe, precisamos ver se a dimensão bate.
-        # Infelizmente o Redis não diz a dimensão fácil no info, então assumimos que se existe, tá ok.
-        # Se der erro de dimensão depois, teria que apagar o índice (FLUSHALL).
     except:
         print(f"⚙️ Criando índice vetorial no Redis (DIM: {REAL_VECTOR_DIM})...")
         schema = (
@@ -70,7 +59,7 @@ try:
             VectorField("vector",        
                 "HNSW", {
                     "TYPE": "FLOAT32", 
-                    "DIM": REAL_VECTOR_DIM, # Usa a dimensão real detectada
+                    "DIM": REAL_VECTOR_DIM, 
                     "DISTANCE_METRIC": "COSINE"
                 }
             ),
@@ -80,7 +69,6 @@ try:
 
 except Exception as e:
     print(f"⚠️ REDIS STACK SETUP ERROR: {e}")
-    # Se der erro de dimensão incompatível, avisa para limpar
     if "Index already exists" not in str(e):
         print("💡 DICA: Se mudou o modelo de Embed, rode 'docker exec -it juridico_redis redis-cli FLUSHALL'")
     USE_REDIS = False
@@ -91,7 +79,6 @@ def buscar_com_cache_semantico(engine: BaseQueryEngine, pergunta_usuario: str) -
         return str(engine.query(pergunta_usuario))
 
     try:
-        # Debug: Check docs count
         try:
             info = _redis_client.ft(INDEX_NAME).info()
             num_docs = info.get(b'num_docs') or info.get('num_docs') or 0
@@ -99,16 +86,12 @@ def buscar_com_cache_semantico(engine: BaseQueryEngine, pergunta_usuario: str) -
         except:
             num_docs = 0
         
-        # 2. Gerar Embedding
         vector = embed_model.get_query_embedding(pergunta_usuario)
-        
-        # --- SEGURANÇA EXTRA: Verifica se a dimensão mudou no meio do caminho ---
         if len(vector) != REAL_VECTOR_DIM:
             print(f"⚠️ ALERTA: Vetor gerado ({len(vector)}) diferente do índice ({REAL_VECTOR_DIM})")
         
         vector_bytes = np.array(vector, dtype=np.float32).tobytes()
 
-        # 3. Buscar no Redis
         query = (
             Query("*=>[KNN 1 @vector $query_vector AS vector_score]")
             .sort_by("vector_score")
@@ -119,19 +102,15 @@ def buscar_com_cache_semantico(engine: BaseQueryEngine, pergunta_usuario: str) -
         params = {"query_vector": vector_bytes}
         results = _redis_client.ft(INDEX_NAME).search(query, query_params=params)
 
-        # 4. Analisar Resultados
         if results.docs:
             doc = results.docs[0]
             distancia = float(doc.vector_score)
-            
-            # LIMIAR
             LIMIAR_ACEITAVEL = 0.35 
 
             if distancia < LIMIAR_ACEITAVEL:
                 resposta_cache = doc.resposta
                 if isinstance(resposta_cache, bytes):
                     resposta_cache = resposta_cache.decode('utf-8')
-                
                 print(f"⚡ CACHE HIT! (Dist: {distancia:.4f}) | Docs Indexados: {num_docs}")
                 return resposta_cache
             else:
@@ -139,22 +118,17 @@ def buscar_com_cache_semantico(engine: BaseQueryEngine, pergunta_usuario: str) -
         else:
             print(f"💨 Cache Miss (Zero vizinhos). Docs: {num_docs}")
         
-        # --- CACHE MISS: BUSCA NO QDRANT ---
         print(f"🔍 QDRANT: Processando pergunta inédita...")
         response = engine.query(pergunta_usuario)
         resposta_final = str(response)
 
-        # 5. Salvar no Redis
         key = f"cache:{gerar_hash_estavel(pergunta_usuario)}"
-        
-        # Usamos chaves em bytes explicitamente para garantir compatibilidade no modo binário
         _redis_client.hset(key, mapping={
             b"vector": vector_bytes,
             b"texto_pergunta": pergunta_usuario.encode('utf-8'), 
             b"resposta": resposta_final.encode('utf-8')          
         })
         _redis_client.expire(key, 86400) 
-        
         return resposta_final
 
     except Exception as e:
@@ -168,6 +142,7 @@ def buscar_com_cache_semantico(engine: BaseQueryEngine, pergunta_usuario: str) -
 class LegalDeps:
     query_engine: BaseQueryEngine
     historico_conversa: List[dict]
+    documento_texto: str = ""
 
 # =======================================================
 # 3. TOOLS
@@ -176,33 +151,22 @@ def tool_buscar_rag(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
     return buscar_com_cache_semantico(ctx.deps.query_engine, termo_busca)
 
 def tool_pesquisa_web(ctx: RunContext[LegalDeps], consulta: str) -> str:
-    """
-    Realiza uma pesquisa real na Web (DuckDuckGo).
-    Retorna título, link exato e resumo.
-    """
     print(f"🌍 PESQUISA WEB (DDG): {consulta}")
-    
     try:
         with DDGS() as ddgs:
-            # Trazemos apenas 3 resultados para não confundir a IA
             results = list(ddgs.text(consulta, region='br-pt', max_results=3))
-            
             if not results:
                 return "Nenhum resultado encontrado na web."
-
             formatted_results = []
             for i, r in enumerate(results):
-                # AQUI ESTÁ O SEGREDO: Formatamos de um jeito que a IA não pode ignorar
                 texto = (
                     f"--- RESULTADO #{i+1} ---\n"
                     f"TÍTULO: {r.get('title')}\n"
-                    f"🔗 LINK_OBRIGATORIO: {r.get('href')}\n"  # Nome da chave bem agressivo
+                    f"🔗 LINK_OBRIGATORIO: {r.get('href')}\n"
                     f"RESUMO: {r.get('body')}\n"
                 )
                 formatted_results.append(texto)
-            
             return "\n".join(formatted_results)
-
     except Exception as e:
         return f"Erro na pesquisa web: {str(e)}"
 
@@ -220,28 +184,48 @@ simples_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[to
 @simples_agent.system_prompt
 def prompt_simples(ctx: RunContext[LegalDeps]) -> str:
     data_hoje = datetime.now().strftime("%d/%m/%Y")
-    return Prompts.simples_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
+    # CORREÇÃO: "texto_documento" (nome no prompt) recebe "deps.documento_texto" (valor da dep)
+    return Prompts.simples_tmpl.format(
+        historico_conversa=ctx.deps.historico_conversa, 
+        data_atual=data_hoje,
+        texto_documento=ctx.deps.documento_texto 
+    )
 
 # --- Agente Corporativo ---
 corporativo_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
 @corporativo_agent.system_prompt
 def prompt_corporativo(ctx: RunContext[LegalDeps]) -> str:
     data_hoje = datetime.now().strftime("%d/%m/%Y")
-    return Prompts.corporativo_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
+    # CORREÇÃO: "texto_documento"
+    return Prompts.corporativo_tmpl.format(
+        historico_conversa=ctx.deps.historico_conversa, 
+        data_atual=data_hoje,
+        texto_documento=ctx.deps.documento_texto
+    )
 
 # --- Agente Trabalhista ---
 trabalhista_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
 @trabalhista_agent.system_prompt
 def prompt_trabalhista(ctx: RunContext[LegalDeps]) -> str:
     data_hoje = datetime.now().strftime("%d/%m/%Y")
-    return Prompts.trabalhista_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
+    # CORREÇÃO: "texto_documento"
+    return Prompts.trabalhista_tmpl.format(
+        historico_conversa=ctx.deps.historico_conversa, 
+        data_atual=data_hoje,
+        texto_documento=ctx.deps.documento_texto
+    )
 
 # --- Agente Societário ---
 societario_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
 @societario_agent.system_prompt
 def prompt_societario(ctx: RunContext[LegalDeps]) -> str:
     data_hoje = datetime.now().strftime("%d/%m/%Y")
-    return Prompts.societario_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
+    # CORREÇÃO: "texto_documento"
+    return Prompts.societario_tmpl.format(
+        historico_conversa=ctx.deps.historico_conversa, 
+        data_atual=data_hoje,
+        texto_documento=ctx.deps.documento_texto
+    )
 
 # --- Agente Conversacional ---
 conversational_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)

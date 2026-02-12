@@ -173,3 +173,23 @@ def processar_urls_stream(lista_urls: list):
 
     # Garante 100% no final
     yield {"tipo": "complete", "msg": "Processo Finalizado!", "progresso": 1.0}
+
+# Adicione ao final do ingestion.py
+
+def excluir_lei_no_banco(url_para_excluir):
+    try:
+        client.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="url_geral", 
+                        match=models.MatchValue(value=url_para_excluir)
+                    )
+                ]
+            ),
+        )
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao excluir do Qdrant: {e}")
+        return False
