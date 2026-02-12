@@ -14,6 +14,9 @@ from pydantic_ai import Agent, RunContext
 from llama_index.core.base.base_query_engine import BaseQueryEngine
 from pydantic import BaseModel, Field
 
+from ddgs import DDGS
+from datetime import datetime
+
 import Prompts
 from LLM import (
     sonnet_bedrock_model,
@@ -167,7 +170,44 @@ class LegalDeps:
     historico_conversa: List[dict]
 
 # =======================================================
-# 3. AGENTES
+# 3. TOOLS
+# =======================================================
+def tool_buscar_rag(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
+    return buscar_com_cache_semantico(ctx.deps.query_engine, termo_busca)
+
+def tool_pesquisa_web(ctx: RunContext[LegalDeps], consulta: str) -> str:
+    """
+    Realiza uma pesquisa real na Web (DuckDuckGo).
+    Retorna título, link exato e resumo.
+    """
+    print(f"🌍 PESQUISA WEB (DDG): {consulta}")
+    
+    try:
+        with DDGS() as ddgs:
+            # Trazemos apenas 3 resultados para não confundir a IA
+            results = list(ddgs.text(consulta, region='br-pt', max_results=3))
+            
+            if not results:
+                return "Nenhum resultado encontrado na web."
+
+            formatted_results = []
+            for i, r in enumerate(results):
+                # AQUI ESTÁ O SEGREDO: Formatamos de um jeito que a IA não pode ignorar
+                texto = (
+                    f"--- RESULTADO #{i+1} ---\n"
+                    f"TÍTULO: {r.get('title')}\n"
+                    f"🔗 LINK_OBRIGATORIO: {r.get('href')}\n"  # Nome da chave bem agressivo
+                    f"RESUMO: {r.get('body')}\n"
+                )
+                formatted_results.append(texto)
+            
+            return "\n".join(formatted_results)
+
+    except Exception as e:
+        return f"Erro na pesquisa web: {str(e)}"
+
+# =======================================================
+# 4. AGENTES
 # =======================================================
 router_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)
 
@@ -175,32 +215,33 @@ router_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)
 def prompt_router(ctx: RunContext[LegalDeps]) -> str:
     return Prompts.router_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
 
-# --- Agente Tributário ---
-tributario_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)
-@tributario_agent.system_prompt
-def prompt_tributario(ctx: RunContext[LegalDeps]) -> str:
-    return Prompts.tributario_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
-@tributario_agent.tool
-def tool_buscar_tributario(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
-    return buscar_com_cache_semantico(ctx.deps.query_engine, termo_busca)
+# --- Agente Simples ---
+simples_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
+@simples_agent.system_prompt
+def prompt_simples(ctx: RunContext[LegalDeps]) -> str:
+    data_hoje = datetime.now().strftime("%d/%m/%Y")
+    return Prompts.simples_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
+
+# --- Agente Corporativo ---
+corporativo_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
+@corporativo_agent.system_prompt
+def prompt_corporativo(ctx: RunContext[LegalDeps]) -> str:
+    data_hoje = datetime.now().strftime("%d/%m/%Y")
+    return Prompts.corporativo_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
 
 # --- Agente Trabalhista ---
-trabalhista_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)
+trabalhista_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
 @trabalhista_agent.system_prompt
 def prompt_trabalhista(ctx: RunContext[LegalDeps]) -> str:
-    return Prompts.trabalhista_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
-@trabalhista_agent.tool
-def tool_buscar_trabalhista(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
-    return buscar_com_cache_semantico(ctx.deps.query_engine, termo_busca)
+    data_hoje = datetime.now().strftime("%d/%m/%Y")
+    return Prompts.trabalhista_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
 
 # --- Agente Societário ---
-societario_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)
+societario_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, tools=[tool_buscar_rag, tool_pesquisa_web])
 @societario_agent.system_prompt
 def prompt_societario(ctx: RunContext[LegalDeps]) -> str:
-    return Prompts.societario_tmpl.format(historico_conversa=ctx.deps.historico_conversa)
-@societario_agent.tool
-def tool_buscar_societario(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
-    return buscar_com_cache_semantico(ctx.deps.query_engine, termo_busca)
+    data_hoje = datetime.now().strftime("%d/%m/%Y")
+    return Prompts.societario_tmpl.format(historico_conversa=ctx.deps.historico_conversa, data_atual=data_hoje)
 
 # --- Agente Conversacional ---
 conversational_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps)

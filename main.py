@@ -16,9 +16,10 @@ from langfuse import Langfuse
 from utils import preparar_historico_estruturado
 langfuse_client = Langfuse()
 
-TRIBUTARIO = "tributario"
+SIMPLES = "simples"
 TRABALHISTA = "trabalhista"
 SOCIETARIO = "societario"
+CORPORATIVO = "corporativo"
 CONVERSATIONAL = "conversational"
 OUT_OF_SCOPE = "out_of_scope"
 
@@ -69,7 +70,7 @@ async def node_router(state: WorkflowState):
     raw_response = str(result.output).strip().lower()
     profile = raw_response.split()[0].replace(".", "").replace(",", "")
     
-    profiles = [TRIBUTARIO, TRABALHISTA, SOCIETARIO, CONVERSATIONAL, OUT_OF_SCOPE]
+    profiles = [SIMPLES, TRABALHISTA, SOCIETARIO, CORPORATIVO, CONVERSATIONAL, OUT_OF_SCOPE]
 
     if profile not in profiles:
        logging.warning(f"Router retornou classificação inválida: '{profile}'. Redirecionando para OUT_OF_SCOPE.")
@@ -78,15 +79,17 @@ async def node_router(state: WorkflowState):
     logging.info(f"--- ROUTER: Perfil definido como '{profile}' ---")
     return {"classification_profile": profile}
 
-async def node_tributario(state: WorkflowState):
+async def node_simples(state: WorkflowState):
     logging.info("--- AGENTE: Simples Nacional, ME/EPP e Pronampe ---")
     deps = _preparar_dependencias(state)
     
     pergunta = state.user_question
 
-    result = await Agents.tributario_agent.run(pergunta, deps=deps)
+    result = await Agents.simples_agent.run(pergunta, deps=deps)
     
     return {"final_response": str(result.output)}
+
+
 
 async def node_trabalhista(state: WorkflowState):
     logging.info("--- AGENTE: Trabalhista (CLT) ---")
@@ -108,6 +111,13 @@ async def node_societario(state: WorkflowState):
     
     return {"final_response": str(result.output)}
 
+async def node_corporativo(state: WorkflowState):
+    logging.info("--- AGENTE: Corporativo (S/A e Lucro Real) ---")
+    deps = _preparar_dependencias(state)
+    # Chama o agente novo definido no Agents.py
+    result = await Agents.corporativo_agent.run(state.user_question, deps=deps)
+    return {"final_response": str(result.output)}
+
 async def node_conversational(state: WorkflowState):
     logging.info("--- AGENTE: Conversational (Papo Social) ---")
     deps = _preparar_dependencias(state)
@@ -123,11 +133,12 @@ async def node_conversational(state: WorkflowState):
 async def node_out_of_scope(state: WorkflowState):
     resp = (
         "Desculpe, não posso ajudar com esse assunto.\n\n"
-        "Minha base de conhecimento é restrita e especializada apenas em:\n"
-        "1. **Tributário:** Simples Nacional e Pronampe (LC 123/2006 e Lei 13.999);\n"
-        "2. **Trabalhista:** Regras da CLT e contratações;\n"
-        "3. **Societário:** Abertura de empresas e Lei do Ambiente de Negócios (Lei 14.195).\n\n"
-        "Para outros temas jurídicos (como Criminal, Família, ou Falências) ou assuntos gerais, não tenho informações disponíveis."
+        "Minha base de conhecimento é restrita a:\n"
+        "1. **Tributário:** Simples Nacional, Lucro Presumido e Real;\n"
+        "2. **Corporativo:** Sociedades Anônimas (S/A) e Governança;\n"
+        "3. **Trabalhista:** Regras da CLT;\n"
+        "4. **Societário:** Abertura e gestão de Limitadas (LTDA).\n\n"
+        "Para assuntos como Penal, Família ou Previdenciário (Pessoa Física), não tenho informações."
     )
 
     return {
@@ -219,12 +230,14 @@ async def node_juiz(state: WorkflowState, config: RunnableConfig = None):
 # 3. LÓGICA E CRIAÇÃO
 # =======================================================
 def check_profile_logic(state: WorkflowState):
-    if state.classification_profile == TRIBUTARIO:
-        return TRIBUTARIO
+    if state.classification_profile == SIMPLES:
+        return SIMPLES
     elif state.classification_profile == TRABALHISTA:
         return TRABALHISTA
     elif state.classification_profile == SOCIETARIO:
         return SOCIETARIO
+    elif state.classification_profile == CORPORATIVO:
+        return CORPORATIVO
     elif state.classification_profile == CONVERSATIONAL:
         return CONVERSATIONAL
     else:
@@ -235,18 +248,20 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     _engine_instance = query_engine
 
     NODE_ROUTER = "node_router"
-    NODE_TRIBUTARIO = f"node_{TRIBUTARIO}"
+    NODE_SIMPLES = f"node_{SIMPLES}"
     NODE_TRABALHISTA = f"node_{TRABALHISTA}"
     NODE_SOCIETARIO = f"node_{SOCIETARIO}"
+    NODE_CORPORATIVO = f"node_{CORPORATIVO}"
     NODE_CONVERSATIONAL = f"node_{CONVERSATIONAL}"
     NODE_OUT_OF_SCOPE = f"node_{OUT_OF_SCOPE}"
     NODE_JUIZ = "node_juiz"
     
     workflow = StateGraph(WorkflowState)
     workflow.add_node(NODE_ROUTER, node_router)
-    workflow.add_node(NODE_TRIBUTARIO, node_tributario)
+    workflow.add_node(NODE_SIMPLES, node_simples)
     workflow.add_node(NODE_TRABALHISTA, node_trabalhista)
     workflow.add_node(NODE_SOCIETARIO, node_societario)
+    workflow.add_node(NODE_CORPORATIVO, node_corporativo)
     workflow.add_node(NODE_CONVERSATIONAL, node_conversational)
     workflow.add_node(NODE_OUT_OF_SCOPE, node_out_of_scope)
     workflow.add_node(NODE_JUIZ, node_juiz)
@@ -254,9 +269,10 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
     workflow.add_edge(START, NODE_ROUTER)
 
     mapa_decisao = {
-        TRIBUTARIO: NODE_TRIBUTARIO,
+        SIMPLES: NODE_SIMPLES,
         TRABALHISTA: NODE_TRABALHISTA,
         SOCIETARIO: NODE_SOCIETARIO,
+        CORPORATIVO: NODE_CORPORATIVO,
         CONVERSATIONAL: NODE_CONVERSATIONAL,
         OUT_OF_SCOPE: NODE_OUT_OF_SCOPE
     }
@@ -267,12 +283,13 @@ def create_workflow(query_engine, checkpointer: BaseCheckpointSaver = None):
         mapa_decisao
     )
     
-    workflow.add_edge(NODE_TRIBUTARIO, NODE_JUIZ)
+    workflow.add_edge(NODE_SIMPLES, NODE_JUIZ)
     workflow.add_edge(NODE_TRABALHISTA, NODE_JUIZ)
     workflow.add_edge(NODE_SOCIETARIO, NODE_JUIZ)
+    workflow.add_edge(NODE_CORPORATIVO, NODE_JUIZ)
+
     workflow.add_edge(NODE_CONVERSATIONAL, END)
     workflow.add_edge(NODE_OUT_OF_SCOPE, END)
-
     workflow.add_edge(NODE_JUIZ, END)
     
     return workflow.compile(checkpointer=checkpointer)

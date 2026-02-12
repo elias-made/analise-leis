@@ -1,34 +1,42 @@
-# Trabalhista
-https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm - Lei do trabalho
+# =======================================================
+# 1. TRABALHISTA
+# =======================================================
+https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm - Lei do trabalho (CLT)
 https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2017/lei/l13467.htm - Reforma trabalhista
 https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2008/lei/l11788.htm - Lei do Estágio
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2022/lei/l14442.htm - Teletrabalho e Auxílio-Alimentação
 https://www.planalto.gov.br/ccivil_03/leis/l6019.htm - Trabalho Temporário e Terceirização
 https://www.planalto.gov.br/ccivil_03/leis/l8036consol.htm - FGTS
 
-# Tributário
+# =======================================================
+# 2. SIMPLES
+# =======================================================
 https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp123.htm - Lei Simples Nacional, ME, EPP
-https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14195.htm - Fim da EIRELI e Desburocratização
-https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp182.htm - Marco Legal das Startups e do Empreendedorismo Inovador
-https://www.planalto.gov.br/ccivil_03/leis/l10147.htm - PIS/COFINS Monofásico
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2020/lei/l13999.htm - Lei do PRONAMPE (Crédito para Pequenas Empresas)
+https://www.planalto.gov.br/ccivil_03/leis/l10147.htm - PIS/COFINS Monofásico
 
-# Societário
-https://www.planalto.gov.br/ccivil_03/leis/2002/l10406compilada.htm - Código Civil (Livro II - Do Direito de Empresa)
+# =======================================================
+# 3. CORPORATIVO
+# =======================================================
+https://www.planalto.gov.br/ccivil_03/leis/l6404consol.htm - Lei das S/A
+https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/decreto/d9580.htm - Regulamento do Imposto de Renda (RIR)
+https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12973.htm - Lei do Lucro Real
+https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2007/lei/l11638.htm - Normas Contábeis e Grandes Sociedades
+https://www.planalto.gov.br/ccivil_03/leis/2002/l10637.htm - PIS Não-Cumulativo
+https://www.planalto.gov.br/ccivil_03/leis/2003/l10.833.htm - COFINS Não-Cumulativo
+https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15270.htm - Tributação de Dividendos
+
+# =======================================================
+# 4. SOCIETÁRIO
+# =======================================================
+https://www.planalto.gov.br/ccivil_03/leis/2002/l10406compilada.htm - Código Civil (Direito de Empresa)
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2019/lei/l13874.htm - Lei da Liberdade Econômica
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14195.htm - Lei do Ambiente de Negócios (Fim da EIRELI e SLU)
 https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp182.htm - Marco Legal das Startups
-https://www.planalto.gov.br/ccivil_03/leis/l6404compilada.htm - Lei das S/A (Subsidiária)
 
-
-
-
-
-
-https://www.planalto.gov.br/ccivil_03/decreto-lei/Del2848.htm
-
-
-
+# =======================================================
+# LISTA DE LINKS (SEM DESCRIÇÃO)
+# =======================================================
 https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm
 https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2017/lei/l13467.htm
 https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2008/lei/l11788.htm
@@ -36,12 +44,16 @@ https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2022/lei/l14442.htm
 https://www.planalto.gov.br/ccivil_03/leis/l6019.htm
 https://www.planalto.gov.br/ccivil_03/leis/l8036consol.htm
 https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp123.htm
-https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14195.htm
-https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp182.htm
-https://www.planalto.gov.br/ccivil_03/leis/l10147.htm
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2020/lei/l13999.htm
+https://www.planalto.gov.br/ccivil_03/leis/l10147.htm
+https://www.planalto.gov.br/ccivil_03/leis/l6404consol.htm
+https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/decreto/d9580.htm
+https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12973.htm
+https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2007/lei/l11638.htm
+https://www.planalto.gov.br/ccivil_03/leis/2002/l10637.htm
+https://www.planalto.gov.br/ccivil_03/leis/2003/l10.833.htm
+https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15270.htm
 https://www.planalto.gov.br/ccivil_03/leis/2002/l10406compilada.htm
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2019/lei/l13874.htm
 https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14195.htm
 https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp182.htm
-https://www.planalto.gov.br/ccivil_03/leis/l6404compilada.htm
