@@ -90,7 +90,7 @@ async def node_router(state: WorkflowState):
     result = await Agents.router_agent.run(state.user_question, deps=deps)
     raw_profile = str(result.output)
 
-    profile = raw_profile.replace("`", "").replace("'", "").replace('"', "").strip().lower()
+    profile = raw_profile.replace("`", "").replace("'", "").replace('"', "").replace('*', "").strip().lower()
     
     logging.info(f"--- ROUTER: Perfil definido como '{profile}' ---")
     perfis_validos = [SIMPLES, TRABALHISTA, SOCIETARIO, CORPORATIVO, CONVERSATIONAL, OUT_OF_SCOPE]
