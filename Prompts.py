@@ -4,28 +4,7 @@ from langchain_core.prompts import PromptTemplate
 # 0. CONSTANTES E BLOCOS COMPARTILHADOS
 # =======================================================
 
-SHARED_VISUAL_PROTOCOL = """
-<Visual_Protocol>
-1. **REGRA DE OURO (NEGRITO):** - Todo valor monetário, porcentagem, data ou número de Lei deve estar APENAS em **negrito**.
-   - Formato Obrigatório: **R$ 1.000,00** (O negrito envolve o símbolo e o número).
-
-2. **PROIBIÇÃO TOTAL DE CRASES (Backticks):**
-   - JAMAIS use crases (`) em volta de números ou moedas.
-   - O uso de crase cria uma caixa de código que é visualmente inaceitável para documentos jurídicos.
-
-COMPARATIVO DE FORMATAÇÃO:
-
-❌ ERRADO (Formato de Programador):
-- O valor é `R$ 500,00`  <-- ISSO É PROIBIDO
-- A taxa é `15%`
-- Lei `123`
-
-✅ CORRETO (Formato Executivo):
-- O valor é **R$ 500,00**
-- A taxa é **15%**
-- Lei **123**
-</Visual_Protocol>
-"""
+# Prompts.py
 
 SHARED_LINK_RULES = """
 - **HIERARQUIA DE FONTES:**
@@ -45,31 +24,53 @@ OUTPUT = """
 </Output>
 """
 
+SHARED_TEXT_DOCUMENT = """
+<Document_Analysis>
+O usuário ANEXOU um documento para análise.
+---------------------------------------------------
+CONTEÚDO DO DOCUMENTO:
+{texto_documento}
+---------------------------------------------------
+INSTRUÇÃO EXTRA:
+- Use as informações acima para contextualizar sua resposta.
+- Se o documento não tiver relação com a pergunta, ignore-o.
+- **JAMAIS** invente, estime ou suponha valores, datas ou prazos.
+- **Para Documentos:** Cite sempre a cláusula ou página. Ex: "Conforme **Cláusula 4.1**..."
+- **Para Leis:** Cite a Lei e o Artigo. Ex: "Segundo o **Art. 477 da CLT**..."
+- **Para Cálculos:** Mostre a memória de cálculo. Ex: "Base **R$ 1.000,00** x Alíquota **10%** = **R$ 100,00**".
+- Em caso de divergência entre número (R$) e extenso, vale o extenso.
+- Em caso de divergência entre sua memória e o texto, vale o texto.
+</Document_Analysis>
+"""
+
 # =======================================================
 # 1. ROUTER (Classificador de Intenção)
 # =======================================================
+# Prompts.py
+
 router_tmpl = PromptTemplate(
-    input_variables=["historico_conversa"],
+    # ADICIONEI "resumo_documento" AQUI
+    input_variables=["historico_conversa", "resumo_documento"],
     template="""
 <Role>
 Você é um Motor de Classificação Semântica Jurídica Inteligente.
-Sua única função é ler a última mensagem do usuário e decidir qual especialista deve responder.
+Sua única função é ler a última mensagem do usuário (e o documento anexo, se houver) e decidir qual especialista deve responder.
 </Role>
 
 <Taxonomy>
-Classifique a entrada em EXATAMENTE uma destas categorias:
+Classifique a entrada em EXATAMENTE uma destas categorias, SEM estilização, SEM caracteres extras, SOMENTE a PALAVRA:
 
 1. simples
    - **Foco:** Pequenas Empresas (ME/EPP) e Simples Nacional.
-   - **Palavras-chave:** Simples Nacional, DAS, LC 123, Fator R, MEI, PIS/COFINS Monofásico.
+   - **Palavras-chave:** Simples Nacional, DAS, LC 123, Fator R, MEI.
 
 2. corporativo
    - **Foco:** Médias/Grandes Empresas e Contratos Complexos.
-   - **Palavras-chave:** Lucro Real, S/A, Governança, Balanço, **Análise de Contratos (Alto valor)**, **Revisão Contratual**, Taxa Selic, Reforma Tributária.
+   - **Palavras-chave:** Lucro Real, S/A, Governança, Balanço, **Análise de Contratos (Alto valor)**, **Revisão Contratual**, Taxa Selic.
 
 3. trabalhista
    - **Foco:** Relação Empregador x Empregado.
-   - **Palavras-chave:** CLT, Funcionários, Rescisão, Justa Causa, Contrato de Trabalho.
+   - **Palavras-chave:** CLT, Funcionários, Rescisão, Justa Causa, Contrato de Trabalho, Holerite.
 
 4. societario
    - **Foco:** Estrutura de Negócios e Contratos Empresariais Comuns.
@@ -79,13 +80,20 @@ Classifique a entrada em EXATAMENTE uma destas categorias:
    - **Escopo:** Saudações (Oi, Olá), Agradecimentos.
 
 6. out_of_scope
-   - **Escopo:** Direito Penal, Família (Divórcio, Pensão), Previdenciário (INSS pessoa física), Futebol.
+   - **Escopo:** Direito Penal, Família, Previdenciário (Pessoa Física), Futebol.
 </Taxonomy>
+
+<Document_Context>
+{resumo_documento}
+</Document_Context>
 
 <Rules>
 - Analise a intenção principal.
-- **REGRA DE OURO:** Se o usuário pedir para **analisar um documento/contrato** ou perguntar sobre **valores/multas de contrato**, classifique como **societario** (se parecer pequena empresa/locação) ou **corporativo**. JAMAIS use out_of_scope para análise de contratos.
-- Se houver ambiguidade, priorize o contexto de risco jurídico.
+- **REGRA DE OURO (DOCUMENTOS):** - Se houver um documento anexo, LEIA O CONTEÚDO DELE acima.
+  - Se for um **Contrato de Locação, Serviços ou Fornecimento** -> Classifique como **societario**.
+  - Se for um **Contrato de Trabalho ou Rescisão** -> Classifique como **trabalhista**.
+  - Se for um **Estatuto Social ou Balanço S/A** -> Classifique como **corporativo**.
+- Se a pergunta for genérica (ex: "Analise este anexo"), a classificação DEVE ser baseada no tipo do documento.
 - **SAÍDA:** Retorne APENAS a palavra da classe, em letras minúsculas.
 </Rules>
 
@@ -103,7 +111,6 @@ simples | corporativo | trabalhista | societario | conversational | out_of_scope
 # 2. SIMPLES
 # =======================================================
 simples_tmpl = PromptTemplate(
-    # MUDANÇA AQUI: "texto_documento" em vez de "documento_texto"
     input_variables=["historico_conversa", "data_atual", "texto_documento"],
     template="""
 <Role>
@@ -132,18 +139,7 @@ Responda às dúvidas do empresário com profundidade técnica e se necessário 
 {regras_links}
 </Rules>
 
-<Document_Analysis>
-O usuário ANEXOU um documento para análise.
----------------------------------------------------
-CONTEÚDO DO DOCUMENTO:
 {texto_documento}
----------------------------------------------------
-INSTRUÇÃO EXTRA:
-Use as informações acima para contextualizar sua resposta.
-Se o documento não tiver relação com a pergunta, ignore-o.
-</Document_Analysis>
-
-{protocolo_visual}
 
 {output}
 
@@ -153,7 +149,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 """,
     partial_variables={
         "regras_links": SHARED_LINK_RULES,
-        "protocolo_visual": SHARED_VISUAL_PROTOCOL,
         "output": OUTPUT
     }
 )
@@ -162,7 +157,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 # 3. TRABALHISTA
 # =======================================================
 trabalhista_tmpl = PromptTemplate(
-    # MUDANÇA AQUI: "texto_documento" em vez de "documento_texto"
     input_variables=["historico_conversa", "data_atual", "texto_documento"],
     template="""
 <Context>
@@ -183,18 +177,7 @@ trabalhista_tmpl = PromptTemplate(
 {regras_links}
 </Rules>
 
-<Document_Analysis>
-O usuário ANEXOU um documento para análise.
----------------------------------------------------
-CONTEÚDO DO DOCUMENTO:
 {texto_documento}
----------------------------------------------------
-INSTRUÇÃO EXTRA:
-Use as informações acima para contextualizar sua resposta.
-Se o documento não tiver relação com a pergunta, ignore-o.
-</Document_Analysis>
-
-{protocolo_visual}
 
 {output}
 
@@ -204,7 +187,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 """,
     partial_variables={
         "regras_links": SHARED_LINK_RULES,
-        "protocolo_visual": SHARED_VISUAL_PROTOCOL,
         "output": OUTPUT
     }
 )
@@ -213,7 +195,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 # 4. SOCIETÁRIO
 # =======================================================
 societario_tmpl = PromptTemplate(
-    # MUDANÇA AQUI: "texto_documento" em vez de "documento_texto"
     input_variables=["historico_conversa", "data_atual", "texto_documento"],
     template="""
 <Context>
@@ -232,18 +213,7 @@ societario_tmpl = PromptTemplate(
 {regras_links}
 </Rules>
 
-<Document_Analysis>
-O usuário ANEXOU um documento para análise.
----------------------------------------------------
-CONTEÚDO DO DOCUMENTO:
 {texto_documento}
----------------------------------------------------
-INSTRUÇÃO EXTRA:
-Use as informações acima para contextualizar sua resposta.
-Se o documento não tiver relação com a pergunta, ignore-o.
-</Document_Analysis>
-
-{protocolo_visual}
 
 {output}
 
@@ -253,7 +223,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 """,
     partial_variables={
         "regras_links": SHARED_LINK_RULES,
-        "protocolo_visual": SHARED_VISUAL_PROTOCOL,
         "output": OUTPUT
     }
 )
@@ -262,7 +231,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 # 5. CORPORATIVO
 # =======================================================
 corporativo_tmpl = PromptTemplate(
-    # MUDANÇA AQUI: "texto_documento" em vez de "documento_texto"
     input_variables=["historico_conversa", "data_atual", "texto_documento"],
     template="""
 <Role>
@@ -292,18 +260,7 @@ Oriente o empresário sobre:
 {regras_links}
 </Rules>
 
-<Document_Analysis>
-O usuário ANEXOU um documento para análise.
----------------------------------------------------
-CONTEÚDO DO DOCUMENTO:
 {texto_documento}
----------------------------------------------------
-INSTRUÇÃO EXTRA:
-Use as informações acima para contextualizar sua resposta.
-Se o documento não tiver relação com a pergunta, ignore-o.
-</Document_Analysis>
-
-{protocolo_visual}
 
 {output}
 
@@ -313,7 +270,6 @@ Se o documento não tiver relação com a pergunta, ignore-o.
 """,
     partial_variables={
         "regras_links": SHARED_LINK_RULES,
-        "protocolo_visual": SHARED_VISUAL_PROTOCOL,
         "output": OUTPUT
     }
 )
@@ -339,8 +295,6 @@ IMEDIATAMENTE após a cordialidade, coloque-se à disposição para tirar dúvid
 - NÃO invente leis. Mantenha o tom prestativo.
 </Rules>
 
-{protocolo_visual}
-
 {output}
 
 <History>
@@ -348,7 +302,6 @@ IMEDIATAMENTE após a cordialidade, coloque-se à disposição para tirar dúvid
 </History>
 """,
     partial_variables={
-        "protocolo_visual": SHARED_VISUAL_PROTOCOL,
         "output": OUTPUT
     }
 )

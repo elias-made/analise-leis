@@ -4,6 +4,10 @@ import requests
 from bs4 import BeautifulSoup
 import unicodedata
 from llama_index.core.node_parser import SentenceSplitter
+import fitz
+import logging
+
+import Prompts
 
 # ==============================================================================
 # 1. MÓDULO DE EXTRAÇÃO (Mantido igual)
@@ -117,3 +121,88 @@ def preparar_historico_estruturado(chat_history: List[str]) -> List[dict]:
                 "content": msg.replace("AI: ", "").strip()
             })
     return historico_formatado
+
+def montar_prompt_documento(texto: str) -> str:
+    if texto and len(texto) > 10:
+        return Prompts.SHARED_TEXT_DOCUMENT.format(texto_documento=texto)
+    return ""
+    
+def preparar_resumo_router(texto: str) -> str:
+    if not texto or len(texto.strip()) < 5:
+        return "Nenhum documento anexado nesta interação."
+    
+    return f"--- INÍCIO DO DOCUMENTO ANEXADO ---\n{texto[:2000]}\n--- FIM DO TRECHO ---"
+
+def corrigir_formatacao_markdown(texto: str) -> str:
+    """
+    Limpa formatação, remove blocos de código indesejados e aplica negrito inteligente.
+    """
+    if not texto: return ""
+
+    # --- FASE 0: DESEMPACOTAMENTO (REMOVE A CAIXA PRETA/CINZA) ---
+    # Remove tags de código markdown que a IA coloca por vício
+    texto = texto.replace("```markdown", "")
+    texto = texto.replace("```", "")
+
+    # --- FASE 1: CORREÇÃO DE MOEDAS QUEBRADAS ---
+    
+    # Caso 1: "R 110.000,00**" (Asterisco no fim, falta no início e falta $)
+    # Regex: Procura R ou R$ + espaço + numero + ** no fim
+    texto = re.sub(r'(?<!\*)\bR\$?\s?([\d\.,]+)\*\*', r'**R$ \1**', texto)
+    
+    # Caso 2: "**R 110.000,00**" (Tem asteriscos, mas falta o $)
+    texto = re.sub(r'\*\*R\s([\d\.,]+)\*\*', r'**R$ \1**', texto)
+
+    # --- FASE 2: APLICAÇÃO AUTOMÁTICA EM VALORES "PELADOS" ---
+    
+    # 1. MOEDAS (R$ 1.000,00) sem negrito
+    # Regex: "R$" seguido de número, que NÃO tenha asterisco antes nem depois
+    padrao_moeda = r'(?<!\*)(R\$\s?[\d\.,]+)(?!\*)'
+    texto = re.sub(padrao_moeda, r'**\1**', texto)
+
+    # 2. PORCENTAGENS (10%) sem negrito
+    padrao_porc = r'(?<!\*)(\b\d+[\.,]?\d*\s?%)(?!\*)'
+    texto = re.sub(padrao_porc, r'**\1**', texto)
+
+    # 3. LEIS E ARTIGOS (Lei 123, Art. 5º)
+    texto = re.sub(r'(?<!\*)(Lei\sn?º?\s?[\d\./-]+)(?!\*)', r'**\1**', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'(?<!\*)(Art\.?|Artigo)\s(\d+[\wº°]*)(?!\*)', r'**\1 \2**', texto, flags=re.IGNORECASE)
+
+    # --- FASE 3: ACABAMENTO PARA O STREAMLIT ---
+    
+    # Remove espaços duplos criados pelas substituições
+    texto = re.sub(r'  +', ' ', texto)
+    
+    # O PULO DO GATO: Escapa o cifrão ($) para não quebrar o LaTeX do Streamlit
+    # Transforma $ em \$ (mas evita duplicar se já tiver)
+    texto = texto.replace("\\$", "$") # Normaliza para estado bruto
+    texto = texto.replace("$", "\\$") # Escapa novamente
+    
+    return texto.strip()
+
+def ler_pdf_bytes(pdf_bytes: bytes) -> str:
+    """
+    Recebe o arquivo em bytes, extrai o texto e retorna string.
+    Trata erros e trunca se for muito grande.
+    """
+    if not pdf_bytes:
+        return ""
+
+    try:
+        texto_extraido = ""
+        # Abre o PDF direto da memória
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for pagina in doc:
+                texto_extraido += pagina.get_text() + "\n"
+        
+        # Limite de segurança (ex: 100k caracteres)
+        limite_chars = 100000 
+        if len(texto_extraido) > limite_chars:
+            texto_extraido = texto_extraido[:limite_chars] + "\n...[CONTEÚDO TRUNCADO]..."
+            logging.warning(f"PDF truncado em {limite_chars} caracteres.")
+        
+        return texto_extraido
+
+    except Exception as e:
+        logging.error(f"Erro ao ler PDF (Helper): {e}")
+        return "ERRO: Arquivo corrompido ou ilegível."

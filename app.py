@@ -4,6 +4,7 @@ import time
 import logging
 import asyncio
 import uuid
+import threading  # <--- IMPORTANTE: Adicionado para rodar o título em background
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -169,8 +170,7 @@ def carregar_engine_rag():
 
 query_engine = carregar_engine_rag()
 
-# --- ATUALIZAÇÃO AQUI: Adicionado parâmetro file_path ---
-async def processar_chat(prompt_usuario, thread_id, file_path=None):
+async def processar_chat(prompt_usuario, thread_id, pdf_bytes=None):
     async with AsyncConnectionPool(conninfo=DB_URL, max_size=10, kwargs={"autocommit": True}) as pool:
         checkpointer = AsyncPostgresSaver(pool)
         await checkpointer.setup()
@@ -178,13 +178,13 @@ async def processar_chat(prompt_usuario, thread_id, file_path=None):
         workflow = main.create_workflow(query_engine, checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
         
-        # Passando o file_path para o estado (se houver)
+        # MUDANÇA AQUI:
+        # Montamos o estado inicial com a chave "file_bytes" que criamos no WorkflowState do main.py
         estado_input = {
             "user_question": prompt_usuario,
-            "file_path": file_path
+            "file_bytes": pdf_bytes  # Passa o binário cru (ou None)
         }
         
-        # Usamos ainvoke para garantir que o PydanticAI complete a execução
         resultado = await workflow.ainvoke(estado_input, config=config)
         return resultado["final_response"]
 
@@ -312,28 +312,25 @@ def pagina_chat():
     for msg in st.session_state.messages:
         render_chat_message(msg["role"], msg["content"])
 
-    # --- 6. UPLOAD DE ARQUIVO (NOVIDADE) ---
-    # Colocamos um expander para anexos antes do input
-    uploaded_file_path = None
+    # --- 6. UPLOAD DE ARQUIVO ---
+    bytes_data = None
+    nome_arquivo = None
+
     with st.expander("📎 Anexar Documento (PDF)", expanded=False):
         arquivo_upload = st.file_uploader("Selecione um PDF para análise", type=["pdf"], key="pdf_uploader")
         
         if arquivo_upload:
-            # Salva o arquivo temporariamente para o backend ler
-            os.makedirs("uploads", exist_ok=True)
-            uploaded_file_path = f"uploads/{arquivo_upload.name}"
-            with open(uploaded_file_path, "wb") as f:
-                f.write(arquivo_upload.getbuffer())
-            st.caption(f"Arquivo pronto: {arquivo_upload.name}")
+            bytes_data = arquivo_upload.getvalue()
+            nome_arquivo = arquivo_upload.name
+            
+            st.caption(f"Arquivo pronto na memória: {nome_arquivo}")
 
     # --- 7. INPUT E PROCESSAMENTO ---
     if prompt := st.chat_input("Digite aqui..."):
-        # Mostra msg do usuário
         
-        # Se tiver arquivo, adiciona um aviso visual na mensagem do usuário
         display_prompt = prompt
-        if uploaded_file_path:
-            display_prompt = f"📄 *[Arquivo Anexado: {os.path.basename(uploaded_file_path)}]*\n\n{prompt}"
+        if nome_arquivo:
+            display_prompt = f"📄 *[Arquivo Anexado: {nome_arquivo}]*\n\n{prompt}"
             
         st.session_state.messages.append({"role": "user", "content": display_prompt})
         render_chat_message("user", display_prompt)
@@ -342,7 +339,6 @@ def pagina_chat():
             st.error("IA Offline.")
             return
 
-        # Lógica de Novo Chat
         flag_novo_chat = False
         if thread_atual_id is None:
             novo_id = str(uuid.uuid4())
@@ -352,32 +348,39 @@ def pagina_chat():
             flag_novo_chat = True
 
         with st.chat_message("assistant", avatar="⚖️"):
-            # Feedback de 'Pensando'
-            spinner_msg = "Lendo documento e analisando..." if uploaded_file_path else "Analisando legislação e jurisprudência..."
+            spinner_msg = "Lendo documento e analisando..." if bytes_data else "Analisando legislação e jurisprudência..."
             
             with st.spinner(spinner_msg):
                 try:
-                    # Passamos o path do arquivo para o backend processar
                     resposta_final = asyncio.run(
-                        processar_chat(prompt, thread_atual_id, file_path=uploaded_file_path)
+                        processar_chat(prompt, thread_atual_id, pdf_bytes=bytes_data)
                     )
                 except Exception as e:
                     st.error(f"Erro: {e}")
                     resposta_final = "Erro ao processar sua solicitação."
 
-            # Streaming Visual
             if resposta_final:
                 st.write_stream(stream_text(resposta_final))
-                
-                # Salva no histórico da sessão
                 st.session_state.messages.append({"role": "assistant", "content": resposta_final})
 
-                # Renomeação Inteligente
+                # --- CORREÇÃO: Geração de Título em Background ---
                 if flag_novo_chat or (len(st.session_state.messages) <= 2 and "Nova Conversa" in titulo_atual):
-                    novo_titulo = gerar_titulo_inteligente_sync(prompt)
-                    if novo_titulo:
-                        asyncio.run(atualizar_titulo_chat_db(thread_atual_id, novo_titulo))
-                        st.rerun()
+                    
+                    # Definição do worker para a thread
+                    def _worker_titulo(p_pergunta, p_thread_id):
+                        # Chama a LLM (bloqueante, mas na thread)
+                        novo_tit = gerar_titulo_inteligente_sync(p_pergunta)
+                        if novo_tit:
+                            # Salva no DB (async dentro da thread precisa de run)
+                            asyncio.run(atualizar_titulo_chat_db(p_thread_id, novo_tit))
+                            print(f"✅ [Background] Título atualizado: {novo_tit}")
+
+                    # Dispara a thread e deixa o código seguir (Fire and Forget)
+                    t = threading.Thread(target=_worker_titulo, args=(prompt, thread_atual_id))
+                    t.start()
+                    
+                    # O script termina aqui e libera o Streamlit IMEDIATAMENTE.
+                    # A thread continua rodando no servidor.
 
 # =========================================================
 # 6. GESTÃO DE LEIS
