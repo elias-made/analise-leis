@@ -1,4 +1,5 @@
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import List, Optional, Any
 
@@ -229,11 +230,32 @@ async def _auditoria_background(user_question, final_response, chat_history, pro
         logging.error(f"Erro na Task do Juiz: {e}")
 
 
+def _disparar_auditoria_background(user_question, final_response, chat_history, profile, deps_query_engine, historico_str, session_id):
+    def _runner():
+        try:
+            asyncio.run(
+                _auditoria_background(
+                    user_question,
+                    final_response,
+                    chat_history,
+                    profile,
+                    deps_query_engine,
+                    historico_str,
+                    session_id,
+                )
+            )
+        except Exception as e:
+            logging.error(f"Erro ao iniciar auditoria em background: {e}")
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+
+
 # =======================================================
 # NÓ DO GRAFO
 # =======================================================
 async def node_juiz(state: WorkflowState, config: RunnableConfig = None):
-    logging.info("--- AGENTE: Juiz (Disparando Thread Paralela) ---")
+    logging.info("--- AGENTE: Juiz (Disparando auditoria em background) ---")
     
     session_id = "sessao_padrao"
     if config and "configurable" in config:
@@ -242,16 +264,14 @@ async def node_juiz(state: WorkflowState, config: RunnableConfig = None):
     novo_historico = _atualizar_historico(state, state.final_response)
     historico_str = "\n".join(state.chat_history) if state.chat_history else "Nenhuma conversa anterior."
 
-    asyncio.create_task(
-        _auditoria_background(
-            state.user_question,
-            state.final_response,
-            state.chat_history,
-            state.classification_profile,
-            _engine_instance,
-            historico_str,
-            session_id
-        )
+    _disparar_auditoria_background(
+        state.user_question,
+        state.final_response,
+        state.chat_history,
+        state.classification_profile,
+        _engine_instance,
+        historico_str,
+        session_id,
     )
 
     return {
