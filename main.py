@@ -52,8 +52,6 @@ def _atualizar_historico(state: WorkflowState, resposta_ai: str) -> List[str]:
 _engine_instance = None
 
 def _preparar_dependencias(state: WorkflowState) -> Agents.LegalDeps:
-    # Em vez de criar uma string gigante com .join("\n"), 
-    # criamos a lista de objetos estruturada.
     historico_limpo = preparar_historico_estruturado(state.chat_history)
     
     return Agents.LegalDeps(
@@ -180,57 +178,58 @@ async def node_out_of_scope(state: WorkflowState):
 # =======================================================
 # TRABALHADOR EM BACKGROUND (ASYNC)
 # =======================================================
-async def _auditoria_background(user_question, final_response, chat_history, profile, deps_query_engine, historico_str, session_id):
-    """
-    Função puramente assíncrona. Não precisa de Thread nem asyncio.run
-    """
+async def _auditoria_background(user_question, final_response, chat_history, profile, deps_query_engine, historico_str, session_id, document_content):
     try:
-        # Pequeno sleep para garantir que a resposta já foi enviada ao usuário
-        # e liberar o event loop para o Frontend gerar o título
-        await asyncio.sleep(0.5) 
+        await asyncio.sleep(0.5)
 
-        deps = Agents.LegalDeps(query_engine=deps_query_engine, historico_conversa=historico_str)
-        
-        texto_pronto = Prompts.juiz_tmpl.format(
-            historico=historico_str,
-            user_question=user_question,
-            final_response=final_response
+        historico_estruturado = preparar_historico_estruturado(chat_history)
+        deps = Agents.LegalDeps(
+            query_engine=deps_query_engine,
+            historico_conversa=historico_estruturado,
+            documento_texto=document_content
         )
+
+        result = await Agents.judge_agent.run("Realize a auditoria.", deps=deps)
         
-        # Aqui ele vai aguardar o LLM, mas como é await, ele libera o processador
-        # para outras coisas (como gerar o título) enquanto espera a API responder
-        result = await Agents.judge_agent.run(texto_pronto, deps=deps)
+        dados = result.output
+        m = dados.metricas
+
         
-        m = result.output.metricas
-        sugestao = result.output.correcao_necessaria
-        
-        historico_visual = preparar_historico_estruturado(chat_history)
+        status_tag = "✅ APROVADO" if dados.aprovado else "❌ REPROVADO"
+        lista_tags = [profile or "geral", status_tag]
 
         trace = langfuse_client.trace(
             name="Auditoria_Juiz",
             session_id=session_id,
             input={
-                "pergunta_usuario": user_question,
-                "contexto_anterior": historico_visual,
-                "resposta_avaliada": final_response,
+                "pergunta": user_question,
+                "resposta_ia": final_response,
+                "historico_analisado": historico_estruturado
             },
-            output=sugestao,
-            tags=[profile or "geral"]
+            
+            output=dados.correcao_necessaria,
+            
+            metadata={
+                "justificativa": dados.justificativa,
+            },
+            
+            tags=lista_tags
         )
         
         trace.score(name="Fundamentacao", value=m.fundamentacao)
         trace.score(name="Utilidade", value=m.utilidade)
         trace.score(name="Tom_de_Voz", value=m.tom_de_voz)
         trace.score(name="Protocolo_Visual", value=m.protocolo_visual)
+        trace.score(name="Aprovado", value=dados.aprovado)
         
         langfuse_client.flush()
-        logging.info("--- JUIZ: Auditoria concluída em background ---")
+        logging.info(f"--- JUIZ: Auditoria concluída ({status_tag}) ---")
         
     except Exception as e:
-        logging.error(f"Erro na Task do Juiz: {e}")
+        logging.error(f"Erro na Task do Juiz: {e}", exc_info=True)
 
 
-def _disparar_auditoria_background(user_question, final_response, chat_history, profile, deps_query_engine, historico_str, session_id):
+def _disparar_auditoria_background(user_question, final_response, chat_history, profile, deps_query_engine, historico_str, session_id, document_content):
     def _runner():
         try:
             asyncio.run(
@@ -242,6 +241,7 @@ def _disparar_auditoria_background(user_question, final_response, chat_history, 
                     deps_query_engine,
                     historico_str,
                     session_id,
+                    document_content
                 )
             )
         except Exception as e:
@@ -262,16 +262,18 @@ async def node_juiz(state: WorkflowState, config: RunnableConfig = None):
         session_id = config["configurable"].get("thread_id", "sessao_padrao")
     
     novo_historico = _atualizar_historico(state, state.final_response)
-    historico_str = "\n".join(state.chat_history) if state.chat_history else "Nenhuma conversa anterior."
+    
+    historico_str = "\n".join(novo_historico)
 
     _disparar_auditoria_background(
         state.user_question,
         state.final_response,
-        state.chat_history,
+        novo_historico,
         state.classification_profile,
         _engine_instance,
         historico_str,
         session_id,
+        state.document_content
     )
 
     return {

@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1
+
 # Instala o uv dentro do container
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 

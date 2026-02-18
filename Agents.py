@@ -1,5 +1,6 @@
 from typing import List
 from dataclasses import dataclass
+import sys
 
 from pydantic_ai import Agent, RunContext
 from llama_index.core.base.base_query_engine import BaseQueryEngine
@@ -32,7 +33,7 @@ def tool_buscar_rag(ctx: RunContext[LegalDeps], termo_busca: str) -> str:
     return buscar_com_cache_semantico(ctx.deps.query_engine, termo_busca)
 
 def tool_pesquisa_web(ctx: RunContext[LegalDeps], consulta: str) -> str:
-    print(f"🌍 PESQUISA WEB (DDG): {consulta}")
+    sys.stderr.write(f"🌍 [DOCKER LOG] PESQUISA WEB: {consulta}\n")
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(consulta, region='br-pt', max_results=3))
@@ -137,8 +138,25 @@ class AvaliacaoJuiz(BaseModel):
     correcao_necessaria: str = Field(description="O que exatamente deve ser corrigido")
 
 # --- Agente Juiz ---
-judge_agent = Agent(
-    model=sonnet_bedrock_model, 
-    deps_type=LegalDeps,
-    output_type=AvaliacaoJuiz
-)
+judge_agent = Agent(model=sonnet_bedrock_model, deps_type=LegalDeps, output_type=AvaliacaoJuiz)
+@judge_agent.system_prompt
+def prompt_juiz(ctx: RunContext[LegalDeps]) -> str:
+    msgs = ctx.deps.historico_conversa
+    
+    ultima_pergunta = "Não identificada"
+    ultima_resposta = "Não identificada"
+
+    if msgs:
+        if msgs[-1]['role'] == 'assistant':
+            ultima_resposta = msgs[-1]['content']
+        if len(msgs) >= 2 and msgs[-2]['role'] == 'user':
+            ultima_pergunta = msgs[-2]['content']
+
+    historico_texto = "\n".join([f"{m['role'].title()}: {m['content']}" for m in msgs])
+
+    return Prompts.juiz_tmpl.format(
+        documento_texto=ctx.deps.documento_texto,
+        historico_conversa=historico_texto,
+        user_question=ultima_pergunta,
+        final_response=ultima_resposta
+    )

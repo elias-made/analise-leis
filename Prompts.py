@@ -269,7 +269,9 @@ Oriente o empresário sobre:
     }
 )
 
-# ... (Conversational e Juiz continuam iguais)
+# =======================================================
+# 6. CONVERSATIONAL
+# =======================================================
 conversational_tmpl = PromptTemplate(
     input_variables=["historico_conversa"],
     template="""
@@ -301,47 +303,56 @@ IMEDIATAMENTE após a cordialidade, coloque-se à disposição para tirar dúvid
     }
 )
 
+# =======================================================
+# 7. JUIZ
+# =======================================================
 juiz_tmpl = PromptTemplate(
-    input_variables=["historico", "user_question", "final_response"],
+    input_variables=["historico_conversa", "user_question", "final_response", "documento_texto"],
     template="""
 <Role>
-Você é um Auditor Jurídico sênior especializado em compliance de IA. Sua função é realizar uma auditoria técnica na resposta gerada por um assistente jurídico.
+Você é um Auditor Jurídico Sênior (LLM-as-a-Judge). 
+Sua função é realizar uma auditoria rigorosa na resposta (<TARGET_RESPONSE>) gerada por um assistente.
 </Role>
 
-<Evaluation_Criteria>
-Analise a resposta baseando-se nestas 4 métricas (Nota 1 a 5):
+<Ground_Truth>
+Este é o DOCUMENTO BASE (Verdade Absoluta). Use-o para validar a fundamentação:
+{documento_texto}
+</Ground_Truth>
 
-1. FUNDAMENTAÇÃO: A resposta cita fontes claras (Lei/RAG ou Notícia/Web)?
-2. UTILIDADE: A dúvida do usuário foi sanada de forma clara e completa?
-3. PROTOCOLO VISUAL: O assistente usou **negrito** para todos os números, valores, datas e leis? Ele usou crases (`) indevidamente em números?
-4. TOM DE VOZ: O tom é consultivo, preventivo e profissional?
-</Evaluation_Criteria>
+--- DADOS DA AUDITORIA ---
 
-<Visual_Protocol_Review>
-Verifique rigorosamente:
-- Valores (R$), Datas, Alíquotas (%) e Números de Leis DEVEM estar em **negrito**.
-- NÃO pode haver crases (`) em volta de números.
-- Deve haver citação explícita: "Conforme Lei..." ou "Segundo site...".
-</Visual_Protocol_Review>
+<CHAT_HISTORY_TO_IGNORE>
+{historico_conversa}
+</CHAT_HISTORY_TO_IGNORE>
+
+<USER_QUESTION_FOCUS>
+{user_question}
+</USER_QUESTION_FOCUS>
+
+<TARGET_RESPONSE>
+{final_response}
+</TARGET_RESPONSE>
+
+--- FIM DOS DADOS ---
 
 <Instructions>
-- Se qualquer métrica for abaixo de 4, marque aprovado como False.
-- Se houver erro de formatação (negritos faltando), a nota máxima em PROTOCOLO deve ser 2.
-- Em 'correcao_necessaria', seja direto: "Faltou negrito no valor R$ X" ou "O Artigo Y não existe".
+1. **Foco Total:** Avalie APENAS o texto dentro de <TARGET_RESPONSE>.
+2. **Ignorar Histórico:** O texto em <CHAT_HISTORY_TO_IGNORE> serve apenas para contexto. Se houver "Bom dia" ou saudações lá, IGNORE.
+3. **Alucinação:** Se a <TARGET_RESPONSE> for técnica, mas você avaliar como "saudação" porque leu o histórico, você falhou.
 </Instructions>
 
-Avalie o cenário:
+<Evaluation_Rubric>
+Analise a <TARGET_RESPONSE> com base nestas 4 métricas (Nota 1 a 5):
 
-<History>
-{historico}
-</History>
+1. FUNDAMENTAÇÃO: Está alinhada com o <Ground_Truth>? (Cita leis corretas?)
+2. UTILIDADE: Responde a <USER_QUESTION_FOCUS>?
+3. PROTOCOLO VISUAL: Usa **negrito** em valores, datas e leis? (Sem crases em números).
+4. TOM DE VOZ: Profissional e consultivo?
+</Evaluation_Rubric>
 
-<UserQuestion>
-{user_question}
-</UserQuestion>
-
-<AgentAnswer>
-{final_response}
-</AgentAnswer>
+<Output_Config>
+Responda no formato JSON esperado pelo parser (AvaliacaoJuiz).
+Se 'Fundamentação' < 4, aprovado = False.
+</Output_Config>
 """
 )
