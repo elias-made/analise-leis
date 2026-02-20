@@ -4,7 +4,7 @@ import time
 import logging
 import asyncio
 import uuid
-import threading  # <--- IMPORTANTE: Adicionado para rodar o título em background
+import threading
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -162,7 +162,6 @@ def carregar_engine_rag():
         client = QdrantClient(url=QDRANT_URL, prefer_grpc=False)
         vector_store = QdrantVectorStore(collection_name="leis_v3", client=client, enable_hybrid=False)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
-        index.as_query_engine(similarity_top_k=5)
         return index.as_query_engine(similarity_top_k=5)
     except Exception as e:
         st.error(f"Erro ao carregar IA: {e}")
@@ -178,11 +177,9 @@ async def processar_chat(prompt_usuario, thread_id, pdf_bytes=None):
         workflow = main.create_workflow(query_engine, checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
         
-        # MUDANÇA AQUI:
-        # Montamos o estado inicial com a chave "file_bytes" que criamos no WorkflowState do main.py
         estado_input = {
             "user_question": prompt_usuario,
-            "file_bytes": pdf_bytes  # Passa o binário cru (ou None)
+            "file_bytes": pdf_bytes  
         }
         
         resultado = await workflow.ainvoke(estado_input, config=config)
@@ -308,36 +305,45 @@ def pagina_chat():
         st.subheader("Nova Conversa")
         st.caption("Qual sua dúvida jurídica de hoje?")
 
-    # --- 5. RENDERIZA MENSAGENS ANTIGAS ---
-    for msg in st.session_state.messages:
-        render_chat_message(msg["role"], msg["content"])
+    # --- 5. RENDERIZA MENSAGENS E CONTAINER ---
+    chat_container = st.container()
+    
+    with chat_container:
+        for msg in st.session_state.messages:
+            render_chat_message(msg["role"], msg["content"])
 
-    # --- 6. UPLOAD DE ARQUIVO ---
-    bytes_data = None
-    nome_arquivo = None
-
-    with st.expander("📎 Anexar Documento (PDF)", expanded=False):
-        arquivo_upload = st.file_uploader("Selecione um PDF para análise", type=["pdf"], key="pdf_uploader")
+    # --- 6. INPUT COM UPLOAD NATIVO E PROCESSAMENTO ---
+    # O accept_file adiciona um ícone de "clipe de papel" direto na barra do chat!
+    if prompt_data := st.chat_input("Digite aqui sua dúvida...", accept_file=True, file_type=["pdf"]):
         
-        if arquivo_upload:
-            bytes_data = arquivo_upload.getvalue()
-            nome_arquivo = arquivo_upload.name
+        # Como accept_file=True, o Streamlit retorna um objeto contendo .text e .files
+        texto_usuario = prompt_data.text if hasattr(prompt_data, "text") else prompt_data
+        arquivos = prompt_data.files if hasattr(prompt_data, "files") else []
+        
+        bytes_data = None
+        nome_arquivo = None
+        
+        if arquivos and len(arquivos) > 0:
+            arquivo_anexado = arquivos[0]
+            bytes_data = arquivo_anexado.getvalue()
+            nome_arquivo = arquivo_anexado.name
+
+        # Verifica se pelo menos um texto ou um arquivo foi enviado
+        if not texto_usuario and not bytes_data:
+            st.stop()
             
-            st.caption(f"Arquivo pronto na memória: {nome_arquivo}")
-
-    # --- 7. INPUT E PROCESSAMENTO ---
-    if prompt := st.chat_input("Digite aqui..."):
-        
-        display_prompt = prompt
+        display_prompt = texto_usuario or "Analise o documento anexado."
         if nome_arquivo:
-            display_prompt = f"📄 *[Arquivo Anexado: {nome_arquivo}]*\n\n{prompt}"
+            display_prompt = f"📄 *[Arquivo Anexado: {nome_arquivo}]*\n\n{display_prompt}"
             
         st.session_state.messages.append({"role": "user", "content": display_prompt})
-        render_chat_message("user", display_prompt)
+        
+        with chat_container:
+            render_chat_message("user", display_prompt)
         
         if not query_engine:
             st.error("IA Offline.")
-            return
+            st.stop()
 
         flag_novo_chat = False
         if thread_atual_id is None:
@@ -347,40 +353,36 @@ def pagina_chat():
             thread_atual_id = novo_id
             flag_novo_chat = True
 
-        with st.chat_message("assistant", avatar="⚖️"):
-            spinner_msg = "Lendo documento e analisando..." if bytes_data else "Analisando legislação e jurisprudência..."
+        with chat_container:
+            with st.chat_message("assistant", avatar="⚖️"):
+                spinner_msg = f"Lendo o documento '{nome_arquivo}'..." if bytes_data else "Analisando legislação e jurisprudência..."
+                
+                with st.spinner(spinner_msg):
+                    try:
+                        resposta_final = asyncio.run(
+                            processar_chat(texto_usuario, thread_atual_id, pdf_bytes=bytes_data)
+                        )
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                        resposta_final = "Erro ao processar sua solicitação."
+
+                if resposta_final:
+                    st.write_stream(stream_text(resposta_final))
+                    st.session_state.messages.append({"role": "assistant", "content": resposta_final})
+
+        # --- Geração de Título em Background ---
+        if flag_novo_chat or (len(st.session_state.messages) <= 2 and "Nova Conversa" in titulo_atual):
+            def _worker_titulo(p_pergunta, p_thread_id):
+                novo_tit = gerar_titulo_inteligente_sync(p_pergunta)
+                if novo_tit:
+                    asyncio.run(atualizar_titulo_chat_db(p_thread_id, novo_tit))
+                    print(f"✅ [Background] Título atualizado: {novo_tit}")
+
+            # Passa o texto extraído ao invés do objeto inteiro
+            t = threading.Thread(target=_worker_titulo, args=(texto_usuario, thread_atual_id))
+            t.start()
             
-            with st.spinner(spinner_msg):
-                try:
-                    resposta_final = asyncio.run(
-                        processar_chat(prompt, thread_atual_id, pdf_bytes=bytes_data)
-                    )
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-                    resposta_final = "Erro ao processar sua solicitação."
-
-            if resposta_final:
-                st.write_stream(stream_text(resposta_final))
-                st.session_state.messages.append({"role": "assistant", "content": resposta_final})
-
-                # --- CORREÇÃO: Geração de Título em Background ---
-                if flag_novo_chat or (len(st.session_state.messages) <= 2 and "Nova Conversa" in titulo_atual):
-                    
-                    # Definição do worker para a thread
-                    def _worker_titulo(p_pergunta, p_thread_id):
-                        # Chama a LLM (bloqueante, mas na thread)
-                        novo_tit = gerar_titulo_inteligente_sync(p_pergunta)
-                        if novo_tit:
-                            # Salva no DB (async dentro da thread precisa de run)
-                            asyncio.run(atualizar_titulo_chat_db(p_thread_id, novo_tit))
-                            print(f"✅ [Background] Título atualizado: {novo_tit}")
-
-                    # Dispara a thread e deixa o código seguir (Fire and Forget)
-                    t = threading.Thread(target=_worker_titulo, args=(prompt, thread_atual_id))
-                    t.start()
-                    
-                    # O script termina aqui e libera o Streamlit IMEDIATAMENTE.
-                    # A thread continua rodando no servidor.
+        st.rerun()
 
 # =========================================================
 # 6. GESTÃO DE LEIS

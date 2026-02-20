@@ -63,7 +63,6 @@ def _preparar_dependencias(state: WorkflowState) -> Agents.LegalDeps:
 async def node_leitor(state: WorkflowState):
     logging.info("--- NODE: Leitor de Documentos ---")
     
-    # Se não tem arquivo novo, mantém o que já estava no estado
     if not state.file_bytes:
         if state.document_content:
             logging.info("Mantendo contexto anterior.")
@@ -71,14 +70,12 @@ async def node_leitor(state: WorkflowState):
 
     logging.info("Processando novo arquivo PDF...")
 
-    # AQUI ESTÁ A MÁGICA: Chamamos a função auxiliar
     texto_processado = ler_pdf_bytes(state.file_bytes)
     
     logging.info(f"Leitura concluída. Tamanho: {len(texto_processado)} chars.")
 
     return {
         "document_content": texto_processado,
-        # Importante: Zeramos o binário para não pesar no banco de dados
         "file_bytes": None 
     }
 

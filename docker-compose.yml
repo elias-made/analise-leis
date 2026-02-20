@@ -48,7 +48,6 @@ services:
     restart: unless-stopped
 
   # 4. APP PRINCIPAL
-  # 4. APP PRINCIPAL
   app:
     build: .
     container_name: juridico_app
